@@ -23,6 +23,8 @@
   <div class="tab-bar" role="tablist" aria-label="Main navigation">
     <button type="button" class="tab-btn active" data-tab="studio" role="tab" aria-selected="true" aria-controls="tab-studio" id="tab-btn-studio">Studio</button>
     <button type="button" class="tab-btn" data-tab="transcripts" role="tab" aria-selected="false" aria-controls="tab-transcripts" id="tab-btn-transcripts">Transcripts</button>
+    <button type="button" class="tab-btn" data-tab="dashboard" role="tab" aria-selected="false" aria-controls="tab-dashboard" id="tab-btn-dashboard">Dashboard</button>
+    <button type="button" class="tab-btn" data-tab="rewards" role="tab" aria-selected="false" aria-controls="tab-rewards" id="tab-btn-rewards">Rewards</button>
     <button type="button" class="tab-btn" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings" id="tab-btn-settings">Settings</button>
   </div>
 
@@ -116,6 +118,16 @@
           <span class="empty-subtitle">Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> to start recording</span>
         </div>
       </div>
+    </div>
+
+    <!-- Dashboard Tab -->
+    <div id="tab-dashboard" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-dashboard">
+      <div class="dashboard-scroll" id="dashboard-container"></div>
+    </div>
+
+    <!-- Rewards Tab -->
+    <div id="tab-rewards" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-rewards">
+      <div class="rewards-scroll" id="rewards-container"></div>
     </div>
 
     <!-- Settings Tab -->

@@ -21,8 +21,9 @@ const STATE_ICON_COLORS = {
 
 function createTrayIcon(color) {
   const svg = [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">',
-    `<circle cx="11" cy="11" r="8" fill="${color}"/>`,
+    '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">',
+    `<path fill="${color}" d="M12 2a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4z"/>`,
+    `<path fill="${color}" d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.93V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H13v-2.07A7 7 0 0 0 19 11z"/>`,
     '</svg>',
   ].join('');
   return nativeImage.createFromDataURL(

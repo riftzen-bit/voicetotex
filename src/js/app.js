@@ -1,6 +1,8 @@
 import { WebSocketClient } from './websocket.js';
 import { WaveformVisualizer } from './waveform.js';
 import { SoundFeedback } from './sounds.js';
+import { renderDashboard } from './dashboard.js';
+import { renderRewards } from './rewards.js';
 
 /* ------------------------------------------------------------------ */
 /*  State Machine                                                      */
@@ -135,6 +137,30 @@ function updateTranscriptCount() {
     }
   }
 }
+function createTagPill(tag, container, entryId) {
+  const pill = document.createElement('span');
+  pill.className = 'annotation-tag';
+  pill.textContent = tag;
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'annotation-tag-remove';
+  removeBtn.textContent = '\u00d7';
+  removeBtn.addEventListener('click', () => {
+    pill.remove();
+    if (ws && entryId) {
+      const notes = container.closest('.transcript-item')?.querySelector('.annotation-notes')?.value || '';
+      ws.send('annotate_entry', { id: entryId, notes, tags: getCurrentTags(container) });
+    }
+  });
+  pill.appendChild(removeBtn);
+  return pill;
+}
+
+function getCurrentTags(container) {
+  return Array.from(container.querySelectorAll('.annotation-tag'))
+    .map(el => el.textContent.replace('\u00d7', '').trim())
+    .filter(Boolean);
+}
+
 
 function addTranscriptItem(msg) {
   const list = dom.transcriptList;
@@ -245,6 +271,52 @@ function addTranscriptItem(msg) {
   item.appendChild(meta);
   item.appendChild(text);
   item.appendChild(actions);
+
+  // --- Annotation UI (notes + tags) ---
+  const annotation = document.createElement('div');
+  annotation.className = 'annotation-section';
+
+  const notesInput = document.createElement('textarea');
+  notesInput.className = 'annotation-notes';
+  notesInput.placeholder = 'Add a note…';
+  notesInput.rows = 1;
+  notesInput.value = msg.notes || '';
+  notesInput.addEventListener('blur', () => {
+    if (ws && msg.id) {
+      ws.send('annotate_entry', { id: msg.id, notes: notesInput.value, tags: getCurrentTags(tagsWrap) });
+    }
+  });
+
+  const tagsWrap = document.createElement('div');
+  tagsWrap.className = 'annotation-tags';
+
+  const existingTags = Array.isArray(msg.tags) ? msg.tags : [];
+  for (const tag of existingTags) {
+    tagsWrap.appendChild(createTagPill(tag, tagsWrap, msg.id));
+  }
+
+  const tagInput = document.createElement('input');
+  tagInput.className = 'annotation-tag-input';
+  tagInput.placeholder = 'Add tag…';
+  tagInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && tagInput.value.trim()) {
+      e.preventDefault();
+      const newTag = tagInput.value.trim().toLowerCase();
+      tagInput.value = '';
+      // Avoid duplicates
+      if (!getCurrentTags(tagsWrap).includes(newTag)) {
+        tagsWrap.insertBefore(createTagPill(newTag, tagsWrap, msg.id), tagInput);
+        if (ws && msg.id) {
+          ws.send('annotate_entry', { id: msg.id, notes: notesInput.value, tags: getCurrentTags(tagsWrap) });
+        }
+      }
+    }
+  });
+
+  tagsWrap.appendChild(tagInput);
+  annotation.appendChild(notesInput);
+  annotation.appendChild(tagsWrap);
+  item.appendChild(annotation);
 
   // Prepend (newest first)
   list.prepend(item);
@@ -793,12 +865,18 @@ function connectWebSocket(port, authToken = '') {
     updateDeviceSelector(msg.list);
   });
 
+  ws.on('rewards', (msg) => {
+    if (dom.dashboardContainer) renderDashboard(dom.dashboardContainer, msg.data);
+    if (dom.rewardsContainer) renderRewards(dom.rewardsContainer, msg.data);
+  });
+
   // Request initial data once connected
   ws.on('open', () => {
     updateConnectionIndicator(true);
     ws.send('get_config');
     ws.send('get_history');
     ws.send('get_devices');
+    ws.send('get_rewards');
   });
 
   ws.on('close', () => {
@@ -966,6 +1044,8 @@ document.addEventListener('DOMContentLoaded', () => {
     shortcutsModal:       document.getElementById('shortcuts-modal'),
     btnCloseShortcuts:    document.getElementById('btn-close-shortcuts'),
     aboutRepoLink:        document.getElementById('about-repo-link'),
+    dashboardContainer:   document.getElementById('dashboard-container'),
+    rewardsContainer:     document.getElementById('rewards-container'),
   };
 
   // Initialize waveform

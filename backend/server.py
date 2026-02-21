@@ -22,6 +22,7 @@ from hotkey import HotkeyListener
 from text_injector import TextInjector
 from postprocessor import VietnamesePostProcessor
 from transcriber import Transcriber
+from rewards import RewardsManager
 
 
 LOGGER = logging.getLogger(__name__)
@@ -116,6 +117,7 @@ class VoiceToTexServer:
         )
         self.transcriber = Transcriber()
         self.postprocessor = VietnamesePostProcessor()
+        self.rewards = RewardsManager()
 
         self.executor = ThreadPoolExecutor(
             max_workers=3, thread_name_prefix="voicetotex"
@@ -154,6 +156,13 @@ class VoiceToTexServer:
             self._load_model_background(model_name), name="initial-model-load"
         )
         self._model_load_task.add_done_callback(_log_task_exception)
+
+        # Retroactively populate rewards from existing transcription history
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self.executor,
+            lambda: self.rewards.populate_from_history(self.history.get_all()),
+        )
 
         self.hotkey_listener.async_start(
             self.loop, self._on_hotkey_start, self._on_hotkey_stop
@@ -478,6 +487,14 @@ class VoiceToTexServer:
                 ),
             )
 
+            timestamp_str = datetime.now().isoformat()
+            reward_result = await loop.run_in_executor(
+                self.executor,
+                lambda: self.rewards.record_transcription(
+                    text, language_out, duration, timestamp_str
+                ),
+            )
+
             transcript_payload = {
                 "type": "transcript",
                 "id": str(entry_id),
@@ -488,6 +505,12 @@ class VoiceToTexServer:
                 "segments": segments_data,
             }
             await self.broadcast(transcript_payload)
+
+            # Broadcast updated rewards/dashboard data to all clients
+            rewards_data = await loop.run_in_executor(
+                self.executor, self.rewards.get_rewards
+            )
+            await self.broadcast({"type": "rewards", "data": rewards_data})
 
         await self._set_state("ready", "Ready")
 
@@ -543,6 +566,13 @@ class VoiceToTexServer:
         await self._send_json(websocket, {"type": "config", "data": config_payload})
 
         await self._send_json(websocket, self.model_progress)
+
+        # Send initial rewards/dashboard data
+        loop = asyncio.get_running_loop()
+        rewards_data = await loop.run_in_executor(
+            self.executor, self.rewards.get_rewards
+        )
+        await self._send_json(websocket, {"type": "rewards", "data": rewards_data})
 
     async def _authenticate_client(self, websocket: Any) -> bool:
         """Expect an auth message with the correct token within 2 seconds."""
@@ -674,6 +704,45 @@ class VoiceToTexServer:
 
         if action == "switch_model":
             await self._command_switch_model(payload)
+            return
+
+        if action == "get_rewards":
+            loop = asyncio.get_running_loop()
+            rewards_data = await loop.run_in_executor(
+                self.executor, self.rewards.get_rewards
+            )
+            await self._send_json(
+                websocket, {"type": "rewards", "data": rewards_data}
+            )
+            return
+
+        if action == "annotate_entry":
+            entry_id = payload.get("id")
+            notes = payload.get("notes")
+            tags = payload.get("tags")
+            if isinstance(entry_id, str) and entry_id:
+                loop = asyncio.get_running_loop()
+                annotated = await loop.run_in_executor(
+                    self.executor,
+                    lambda: self.history.annotate(
+                        entry_id,
+                        notes=notes if isinstance(notes, str) else None,
+                        tags=tags if isinstance(tags, list) else None,
+                    ),
+                )
+                if annotated:
+                    entries = self.history.get_all()
+                    await self.broadcast({"type": "history", "entries": entries})
+            return
+
+        if action == "get_tags":
+            loop = asyncio.get_running_loop()
+            tags = await loop.run_in_executor(
+                self.executor, self.history.get_all_tags
+            )
+            await self._send_json(
+                websocket, {"type": "tags", "tags": tags}
+            )
             return
 
         if action == "shutdown":

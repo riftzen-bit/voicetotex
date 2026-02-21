@@ -21,6 +21,8 @@ _ENTRY_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "timestamp": str,
     "model": str,
     "segments": list,
+    "notes": str,
+    "tags": list,
 }
 
 
@@ -29,7 +31,7 @@ def _validate_entry(entry: object) -> bool:
     if not isinstance(entry, dict):
         return False
     for field, expected_types in _ENTRY_SCHEMA.items():
-        if field == "segments":
+        if field in ("segments", "notes", "tags"):
             continue
         value = entry.get(field)
         if value is None or not isinstance(value, expected_types):
@@ -96,6 +98,8 @@ class TranscriptionHistory:
         duration: float,
         model: str,
         segments: list[dict[str, object]] | None = None,
+        notes: str | None = None,
+        tags: list[str] | None = None,
     ) -> str:
         """Add a new transcription entry.
 
@@ -105,6 +109,8 @@ class TranscriptionHistory:
             duration: Duration in seconds
             model: Model name used
             segments: Optional transcript segments with start/end/text
+            notes: Optional annotation notes
+            tags: Optional list of tag strings
 
         Returns:
             Entry ID (UUID string)
@@ -121,6 +127,8 @@ class TranscriptionHistory:
                     "timestamp": datetime.now().isoformat(),
                     "model": model,
                     "segments": segments or [],
+                    "notes": notes or "",
+                    "tags": tags or [],
                 },
             )
             self._entries.append(entry)
@@ -176,6 +184,54 @@ class TranscriptionHistory:
                     self._save_internal()
                     return True
             return False
+
+    def annotate(
+        self,
+        entry_id: str,
+        notes: str | None = None,
+        tags: list[str] | None = None,
+    ) -> bool:
+        """Set notes and/or tags on a history entry.
+
+        Args:
+            entry_id: UUID of the entry to annotate
+            notes: Optional annotation notes to set
+            tags: Optional list of tag strings to set
+
+        Returns:
+            True if entry was found and updated, False if not found
+        """
+        with _history_lock:
+            for entry in self._entries:
+                if entry.get("id") == entry_id:
+                    if notes is not None:
+                        entry["notes"] = notes
+                    if tags is not None:
+                        if not isinstance(tags, list) or not all(
+                            isinstance(t, str) for t in tags
+                        ):
+                            logger.error(
+                                "Tags must be a list of strings, got %s", type(tags)
+                            )
+                            return False
+                        entry["tags"] = tags
+                    self._save_internal()
+                    return True
+            return False
+
+    def get_all_tags(self) -> list[str]:
+        """Get all unique tags from all history entries.
+
+        Returns:
+            Sorted list of unique tag strings
+        """
+        with _history_lock:
+            tags_set = set()
+            for entry in self._entries:
+                entry_tags = entry.get("tags")
+                if isinstance(entry_tags, list):
+                    tags_set.update(t for t in entry_tags if isinstance(t, str))
+            return sorted(list(tags_set))
 
     def clear(self) -> None:
         """Clear all history entries."""
