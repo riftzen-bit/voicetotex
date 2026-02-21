@@ -124,17 +124,39 @@ function createMainWindow() {
   });
 }
 
+function getBackendPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'backend');
+  }
+  return path.join(__dirname, '..', 'backend');
+}
+
+function detectCudaLibPath(pythonPath) {
+  try {
+    const { execSync } = require('child_process');
+    return execSync(`"${pythonPath}" -c "
+import site, os
+for base in (site.getsitepackages() + [site.getusersitepackages()]):
+    p = os.path.join(base, 'nvidia', 'cublas', 'lib')
+    if os.path.isdir(p):
+        print(p)
+        break
+"`, { encoding: 'utf8', timeout: 5000 }).trim();
+  } catch { return ''; }
+}
+
 function findPythonPath() {
   if (process.env.VOICETOTEX_PYTHON) {
     return process.env.VOICETOTEX_PYTHON;
   }
-  return path.join(__dirname, '..', 'backend', '.venv', 'bin', 'python');
+  const backendDir = getBackendPath();
+  return path.join(backendDir, '.venv', 'bin', 'python');
 }
 
 function killStaleBackend() {
   try {
     const { execSync } = require('child_process');
-    const serverScript = path.join(__dirname, '..', 'backend', 'server.py');
+    const serverScript = path.join(getBackendPath(), 'server.py');
     const pids = execSync(`pgrep -f "${serverScript}"`, { encoding: 'utf8', timeout: 3000 })
       .trim().split('\n').filter(Boolean);
     for (const pid of pids) {
@@ -161,17 +183,23 @@ function spawnPythonBackend() {
   isSpawning = true;
 
   const pythonPath = findPythonPath();
-  const serverScript = path.join(__dirname, '..', 'backend', 'server.py');
-  const backendDir = path.join(__dirname, '..', 'backend');
+  const backendDir = getBackendPath();
+  const serverScript = path.join(backendDir, 'server.py');
 
   killStaleBackend();
   clearStartupTimer();
   sendToRenderer('backend-status', { status: 'starting' });
 
+  const env = { ...process.env, PYTHONUNBUFFERED: '1' };
+  const cudaPath = detectCudaLibPath(pythonPath);
+  if (cudaPath) {
+    env.LD_LIBRARY_PATH = cudaPath + (env.LD_LIBRARY_PATH ? ':' + env.LD_LIBRARY_PATH : '');
+  }
+
   pythonProcess = spawn(pythonPath, [serverScript], {
     cwd: backendDir,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    env,
   });
 
   // Startup timeout — if backend doesn't send READY within limit, notify renderer

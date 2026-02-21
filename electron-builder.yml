@@ -1,0 +1,62 @@
+appId: com.voicetotex.app
+productName: VoiceToTex
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - electron/**/*
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/*.ts"
+
+extraResources:
+  - from: backend/
+    to: backend
+    filter:
+      - "**/*.py"
+      - "requirements.txt"
+      - "!__pycache__/**"
+      - "!.venv/**"
+      - "!**/*.pyc"
+
+asar: true
+
+linux:
+  target:
+    - target: deb
+      arch:
+        - x64
+  icon: build/icons
+  category: AudioVideo
+  synopsis: Local voice-to-text transcription powered by Whisper
+  desktop:
+    entry:
+      Name: VoiceToTex
+      GenericName: Voice Transcription
+      Comment: Local voice-to-text desktop app powered by Whisper
+      Categories: AudioVideo;Audio;Utility
+      Keywords: voice;transcription;whisper;speech;text
+      StartupNotify: "true"
+      StartupWMClass: voicetotex
+      Terminal: "false"
+
+deb:
+  packageName: voicetotex
+  packageCategory: sound
+  priority: optional
+  compression: xz
+  depends:
+    - python3 (>= 3.10)
+    - python3-venv
+    - python3-pip
+    - python3-dev
+    - libasound2-dev | libasound2t64
+    - libportaudio2
+    - xdotool
+  recommends:
+    - libappindicator3-1
+  afterInstall: build/after-install.sh
+  afterRemove: build/after-remove.sh

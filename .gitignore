@@ -8,3 +8,4 @@ dist/
 .env
 .omc/
 .ruff_cache/
+build/icons/

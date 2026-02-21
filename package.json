@@ -5,13 +5,17 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "setup": "bash scripts/setup.sh"
+    "setup": "bash scripts/setup.sh",
+    "build:icons": "bash scripts/generate-icons.sh",
+    "build:deb": "bash scripts/build-deb.sh",
+    "build": "npm run build:icons && npx electron-builder --linux deb"
   },
-  "dependencies": {
-    "electron": "^35.0.0"
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0"
   },
-  "devDependencies": {},
-  "author": "paul",
+  "author": {"name": "paul", "email": "binb53339@gmail.com"},
   "license": "MIT",
   "private": true
 }
