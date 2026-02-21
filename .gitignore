@@ -1,0 +1,10 @@
+node_modules/
+backend/.venv/
+*.pyc
+__pycache__/
+.cache/
+dist/
+*.egg-info/
+.env
+.omc/
+.ruff_cache/

@@ -1,0 +1,105 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: transparent;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 100vh;
+  padding-top: 8px;
+  -webkit-app-region: drag;
+}
+
+.overlay-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px 7px 12px;
+  background: rgba(20, 20, 20, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.3s, border-color 0.3s;
+  -webkit-app-region: no-drag;
+  animation: slide-down-fade 0.3s ease-out;
+}
+
+.overlay-pill:hover {
+  background: rgba(30, 30, 30, 0.95);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
+}
+
+.overlay-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.overlay-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(240, 240, 240, 0.9);
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+
+body[data-state="ready"] .overlay-dot {
+  background: #2ecc71;
+}
+
+body[data-state="recording"] .overlay-dot {
+  background: #ff4444;
+  animation: pulse 1.5s ease-out infinite;
+}
+
+body[data-state="recording"] .overlay-pill {
+  border-color: rgba(255, 68, 68, 0.3);
+  box-shadow: 0 2px 16px rgba(255, 68, 68, 0.25), 0 0 8px rgba(255, 68, 68, 0.15);
+}
+
+body[data-state="processing"] .overlay-dot {
+  background: #f0a500;
+  animation: pulse-amber 1.5s ease-out infinite;
+}
+
+body[data-state="processing"] .overlay-pill {
+  border-color: rgba(240, 165, 0, 0.3);
+  box-shadow: 0 2px 16px rgba(240, 165, 0, 0.2), 0 0 8px rgba(240, 165, 0, 0.1);
+}
+
+body[data-state="loading"] .overlay-dot {
+  background: #717171;
+}
+
+body[data-state="error"] .overlay-dot {
+  background: #ff4444;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.6); }
+  70% { box-shadow: 0 0 0 6px rgba(255, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }
+}
+
+@keyframes pulse-amber {
+  0% { box-shadow: 0 0 0 0 rgba(240, 165, 0, 0.6); }
+  70% { box-shadow: 0 0 0 6px rgba(240, 165, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(240, 165, 0, 0); }
+}
+
+@keyframes slide-down-fade {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

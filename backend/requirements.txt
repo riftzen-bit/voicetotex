@@ -1,0 +1,7 @@
+faster-whisper==1.2.1
+websockets>=16.0
+sounddevice>=0.5.5
+numpy>=2.4
+noisereduce>=3.0
+evdev>=1.9
+scipy>=1.15

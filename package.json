@@ -1,0 +1,17 @@
+{
+  "name": "voicetotex",
+  "version": "1.0.0",
+  "description": "Local voice-to-text desktop app powered by Whisper Large V3",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "setup": "bash scripts/setup.sh"
+  },
+  "dependencies": {
+    "electron": "^35.0.0"
+  },
+  "devDependencies": {},
+  "author": "paul",
+  "license": "MIT",
+  "private": true
+}
