@@ -32,8 +32,10 @@ jobs:
           node --check electron/overlay.js
           node --check electron/overlay-preload.js
           node --check electron/tray.js
-          node --check src/js/app.js
-          node --check src/js/waveform.js
-          node --check src/js/websocket.js
-          node --check src/js/sounds.js
-          node --check src/js/overlay.js
+
+          for file in src/js/*.js; do
+            tmp_file="$(mktemp --suffix=.mjs)"
+            cp "$file" "$tmp_file"
+            node --check "$tmp_file"
+            rm "$tmp_file"
+          done
