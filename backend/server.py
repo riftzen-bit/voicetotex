@@ -488,7 +488,7 @@ class VoiceToTexServer:
             )
 
             timestamp_str = datetime.now().isoformat()
-            reward_result = await loop.run_in_executor(
+            await loop.run_in_executor(
                 self.executor,
                 lambda: self.rewards.record_transcription(
                     text, language_out, duration, timestamp_str
