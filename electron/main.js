@@ -16,7 +16,10 @@ let pythonProcess = null;
 let backendPort = null;
 let restartCount = 0;
 const MAX_RESTARTS = 3;
+const STARTUP_TIMEOUT_MS = 120_000;
 let isQuitting = false;
+let isSpawning = false;
+let startupTimer = null;
 
 function boundsFilePath() {
   return path.join(app.getPath('userData'), 'window-bounds.json');
@@ -143,12 +146,26 @@ function killStaleBackend() {
   } catch { /* no stale processes, or pgrep not found — fine */ }
 }
 
+function clearStartupTimer() {
+  if (startupTimer) {
+    clearTimeout(startupTimer);
+    startupTimer = null;
+  }
+}
+
 function spawnPythonBackend() {
+  if (isSpawning) {
+    console.log('spawnPythonBackend() called while already spawning — skipping');
+    return;
+  }
+  isSpawning = true;
+
   const pythonPath = findPythonPath();
   const serverScript = path.join(__dirname, '..', 'backend', 'server.py');
   const backendDir = path.join(__dirname, '..', 'backend');
 
   killStaleBackend();
+  clearStartupTimer();
   sendToRenderer('backend-status', { status: 'starting' });
 
   pythonProcess = spawn(pythonPath, [serverScript], {
@@ -156,6 +173,18 @@ function spawnPythonBackend() {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, PYTHONUNBUFFERED: '1' },
   });
+
+  // Startup timeout — if backend doesn't send READY within limit, notify renderer
+  startupTimer = setTimeout(() => {
+    startupTimer = null;
+    if (isSpawning && pythonProcess) {
+      console.error(`Backend startup timed out after ${STARTUP_TIMEOUT_MS / 1000}s`);
+      sendToRenderer('backend-status', {
+        status: 'crashed',
+        message: `Backend failed to start within ${STARTUP_TIMEOUT_MS / 1000}s. The model may be downloading — try restarting.`,
+      });
+    }
+  }, STARTUP_TIMEOUT_MS);
 
   let stdoutBuffer = '';
   pythonProcess.stdout.on('data', (chunk) => {
@@ -165,6 +194,8 @@ function spawnPythonBackend() {
     for (const line of lines) {
       const match = line.match(/^READY:(\d+)(?::(.+))?$/);
       if (match) {
+        clearStartupTimer();
+        isSpawning = false;
         backendPort = parseInt(match[1], 10);
         const authToken = match[2] || '';
         restartCount = 0;
@@ -179,12 +210,16 @@ function spawnPythonBackend() {
   });
 
   pythonProcess.on('error', (err) => {
+    clearStartupTimer();
+    isSpawning = false;
     console.error(`Failed to spawn Python backend: ${err.message}`);
     pythonProcess = null;
     sendToRenderer('backend-status', { status: 'error', message: err.message });
   });
 
   pythonProcess.on('exit', (code, signal) => {
+    clearStartupTimer();
+    isSpawning = false;
     console.log(`Python backend exited: code=${code}, signal=${signal}`);
     pythonProcess = null;
     backendPort = null;
@@ -245,13 +280,18 @@ ipcMain.handle('send-command', (_event, _action, _data) => null);
 
 ipcMain.handle('export-file', async (_event, content, defaultName) => {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
+  const ext = (defaultName || '').split('.').pop() || 'txt';
+  const filterMap = {
+    txt: { name: 'Text', extensions: ['txt'] },
+    json: { name: 'JSON', extensions: ['json'] },
+    srt: { name: 'SubRip Subtitles', extensions: ['srt'] },
+    vtt: { name: 'WebVTT', extensions: ['vtt'] },
+  };
+  const filter = filterMap[ext] || filterMap.txt;
   const result = await dialog.showSaveDialog(mainWindow, {
     title: 'Export Transcripts',
     defaultPath: defaultName || 'transcripts.txt',
-    filters: [
-      { name: 'Text', extensions: ['txt'] },
-      { name: 'All Files', extensions: ['*'] },
-    ],
+    filters: [filter, { name: 'All Files', extensions: ['*'] }],
   });
   if (result.canceled || !result.filePath) return false;
   try {
@@ -264,6 +304,8 @@ ipcMain.handle('export-file', async (_event, content, defaultName) => {
 
 ipcMain.on('restart-backend', () => {
   restartCount = 0;
+  clearStartupTimer();
+  isSpawning = false;
   if (pythonProcess) {
     killPythonBackend().then(() => spawnPythonBackend());
   } else {

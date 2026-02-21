@@ -13,33 +13,34 @@
   <div class="titlebar">
     <span class="titlebar-title">VoiceToTex</span>
     <div class="titlebar-controls">
+      <button type="button" class="titlebar-btn" id="btn-shortcuts" aria-label="Keyboard shortcuts" title="Keyboard shortcuts">?</button>
       <button type="button" class="titlebar-btn minimize" id="btn-minimize" aria-label="Minimize">&#x2500;</button>
       <button type="button" class="titlebar-btn close" id="btn-close" aria-label="Close">&#x2715;</button>
     </div>
   </div>
 
   <!-- Tab Bar -->
-  <div class="tab-bar">
-    <button type="button" class="tab-btn active" data-tab="studio">Studio</button>
-    <button type="button" class="tab-btn" data-tab="transcripts">Transcripts</button>
-    <button type="button" class="tab-btn" data-tab="settings">Settings</button>
+  <div class="tab-bar" role="tablist" aria-label="Main navigation">
+    <button type="button" class="tab-btn active" data-tab="studio" role="tab" aria-selected="true" aria-controls="tab-studio" id="tab-btn-studio">Studio</button>
+    <button type="button" class="tab-btn" data-tab="transcripts" role="tab" aria-selected="false" aria-controls="tab-transcripts" id="tab-btn-transcripts">Transcripts</button>
+    <button type="button" class="tab-btn" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings" id="tab-btn-settings">Settings</button>
   </div>
 
   <!-- Tab Content -->
   <div class="tab-content">
 
     <!-- Studio Tab -->
-    <div id="tab-studio" class="tab-panel active">
+    <div id="tab-studio" class="tab-panel active" role="tabpanel" aria-labelledby="tab-btn-studio">
       <div class="studio-card">
         <div class="waveform-wrapper">
-          <canvas id="waveform" class="waveform-canvas"></canvas>
+          <canvas id="waveform" class="waveform-canvas" aria-label="Audio waveform visualization" role="img"></canvas>
         </div>
         <div class="transport-bar">
           <div class="transport-left">
-            <span class="state-dot"></span>
+            <span class="state-dot" role="status" aria-label="Recording state"></span>
             <span class="state-label"></span>
-            <span class="connection-indicator">
-              <span class="connection-dot disconnected" id="connection-dot"></span>
+            <span class="connection-indicator" role="status" aria-live="polite">
+              <span class="connection-dot disconnected" id="connection-dot" aria-hidden="true"></span>
               <span class="connection-label" id="connection-label">Disconnected</span>
             </span>
           </div>
@@ -76,36 +77,49 @@
         <div class="info-strip-kv"><span>Connection</span><strong id="studio-connection">Offline</strong></div>
       </div>
 
-      <div id="transcript-preview" class="transcript-preview">
+      <div id="transcript-preview" class="transcript-preview" aria-live="polite" aria-label="Latest transcript">
         <div class="transcript-preview-empty">Press Ctrl+Shift+Space to start recording</div>
       </div>
     </div>
 
     <!-- Transcripts Tab -->
-    <div id="tab-transcripts" class="tab-panel">
+    <div id="tab-transcripts" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-transcripts">
       <div class="transcript-toolbar">
         <div class="transcript-toolbar-left">
           <h2 class="transcript-toolbar-title">Transcripts</h2>
-          <span class="transcript-count" id="transcript-count"></span>
+          <span class="transcript-count" id="transcript-count" aria-label="Transcript count"></span>
+          <span class="word-count" id="word-count" aria-label="Total word count"></span>
         </div>
         <div class="transcript-toolbar-right">
-          <button type="button" class="toolbar-btn" id="btn-export">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export
-          </button>
+          <div class="export-dropdown" id="export-dropdown">
+            <button type="button" class="toolbar-btn" id="btn-export">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export
+            </button>
+            <div class="export-menu" id="export-menu">
+              <button type="button" class="export-menu-item" data-format="txt">Text (.txt)</button>
+              <button type="button" class="export-menu-item" data-format="json">JSON (.json)</button>
+              <button type="button" class="export-menu-item" data-format="srt">Subtitles (.srt)</button>
+              <button type="button" class="export-menu-item" data-format="vtt">WebVTT (.vtt)</button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="transcript-search-bar">
         <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" class="transcript-search-input" id="transcript-search" placeholder="Search transcripts...">
+        <input type="text" class="transcript-search-input" id="transcript-search" placeholder="Search transcripts..." aria-label="Search transcripts">
       </div>
-      <div id="transcript-list" class="transcript-list">
-        <div class="transcript-empty">Press Ctrl+Shift+Space to start recording</div>
+      <div id="transcript-list" class="transcript-list" role="list" aria-label="Transcript history">
+        <div class="transcript-empty" role="status">
+          <svg class="empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+          <span class="empty-title">No transcripts yet</span>
+          <span class="empty-subtitle">Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> to start recording</span>
+        </div>
       </div>
     </div>
 
     <!-- Settings Tab -->
-    <div id="tab-settings" class="tab-panel">
+    <div id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-settings">
       <div class="settings-body">
 
         <!-- Section: Recognition -->
@@ -267,14 +281,65 @@
           </div>
         </div>
 
+        <!-- Section: About -->
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <h3 class="settings-group-title">About</h3>
+            <p class="settings-group-desc">Application information</p>
+          </div>
+          <div class="settings-group-body">
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <label class="settings-label">Version</label>
+                <span class="settings-description">VoiceToTex</span>
+              </div>
+              <span class="about-version" id="about-version">1.0.0</span>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <label class="settings-label">Source Code</label>
+                <span class="settings-description">Open source on GitHub</span>
+              </div>
+              <a class="about-link" href="https://github.com/riftzen-bit/voicetotex" id="about-repo-link">riftzen-bit/voicetotex</a>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <label class="settings-label">Powered By</label>
+                <span class="settings-description">Speech recognition engine</span>
+              </div>
+              <span class="about-credit">faster-whisper / CTranslate2</span>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
   </div><!-- end tab-content -->
 
+  <!-- Shortcuts Modal -->
+  <div id="shortcuts-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">Keyboard Shortcuts</h3>
+        <button type="button" class="modal-close" id="btn-close-shortcuts" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <table class="shortcuts-table">
+          <tbody>
+            <tr><td class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></td><td>Start / Stop recording</td></tr>
+            <tr><td class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd></td><td>Paste transcribed text</td></tr>
+            <tr><td class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>/</kbd></td><td>Show this help</td></tr>
+          </tbody>
+        </table>
+        <p class="shortcuts-hint">The recording hotkey can be changed in Settings.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Loading Overlay -->
-  <div id="loading-overlay" class="loading-overlay">
-    <div class="spinner"></div>
+  <div id="loading-overlay" class="loading-overlay" role="alert" aria-live="assertive">
+    <div class="spinner" aria-hidden="true"></div>
     <span class="loading-text">Loading model...</span>
     <div class="progress-bar">
       <div class="progress-fill" id="progress-fill"></div>
@@ -282,7 +347,7 @@
   </div>
 
   <!-- Crash Recovery Overlay -->
-  <div id="crash-overlay" class="crash-overlay">
+  <div id="crash-overlay" class="crash-overlay" role="alert" aria-live="assertive">
     <div class="crash-content">
       <div class="crash-icon">&#x26A0;</div>
       <div class="crash-title">Backend Disconnected</div>

@@ -20,6 +20,7 @@ _ENTRY_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "duration": (int, float),
     "timestamp": str,
     "model": str,
+    "segments": list,
 }
 
 
@@ -28,6 +29,8 @@ def _validate_entry(entry: object) -> bool:
     if not isinstance(entry, dict):
         return False
     for field, expected_types in _ENTRY_SCHEMA.items():
+        if field == "segments":
+            continue
         value = entry.get(field)
         if value is None or not isinstance(value, expected_types):
             return False
@@ -64,7 +67,8 @@ class TranscriptionHistory:
                     dropped = len(data) - len(valid)
                     if dropped:
                         logger.warning(
-                            "Dropped %d malformed history entry/entries on load.", dropped
+                            "Dropped %d malformed history entry/entries on load.",
+                            dropped,
                         )
                     self._entries = valid
                 else:
@@ -91,6 +95,7 @@ class TranscriptionHistory:
         language: str,
         duration: float,
         model: str,
+        segments: list[dict[str, object]] | None = None,
     ) -> str:
         """Add a new transcription entry.
 
@@ -99,6 +104,7 @@ class TranscriptionHistory:
             language: Language code
             duration: Duration in seconds
             model: Model name used
+            segments: Optional transcript segments with start/end/text
 
         Returns:
             Entry ID (UUID string)
@@ -114,6 +120,7 @@ class TranscriptionHistory:
                     "duration": duration,
                     "timestamp": datetime.now().isoformat(),
                     "model": model,
+                    "segments": segments or [],
                 },
             )
             self._entries.append(entry)
@@ -150,6 +157,24 @@ class TranscriptionHistory:
             if len(self._entries) < original_len:
                 self._save_internal()
                 return True
+            return False
+
+    def update(self, entry_id: str, text: str) -> bool:
+        """Update the text of an existing history entry.
+
+        Args:
+            entry_id: UUID of the entry to update
+            text: New text content
+
+        Returns:
+            True if entry was updated, False if not found
+        """
+        with _history_lock:
+            for entry in self._entries:
+                if entry.get("id") == entry_id:
+                    entry["text"] = text
+                    self._save_internal()
+                    return True
             return False
 
     def clear(self) -> None:

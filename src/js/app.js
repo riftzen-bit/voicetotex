@@ -35,6 +35,7 @@ let ws = null;
 let hotkeyMode = 'hold';
 let wsConnected = false;
 let backendAuthToken = '';
+let configLanguage = 'auto';
 
 function setTrackMeter(el, value) {
   if (!el) return;
@@ -112,9 +113,27 @@ function setState(newState) {
 const MAX_VISIBLE_ITEMS = 100;
 
 function updateTranscriptCount() {
-  if (!dom.transcriptCount || !dom.transcriptList) return;
-  const count = dom.transcriptList.querySelectorAll('.transcript-item').length;
-  dom.transcriptCount.textContent = count > 0 ? count : '';
+  if (!dom.transcriptList) return;
+  const items = dom.transcriptList.querySelectorAll('.transcript-item');
+  const count = items.length;
+  if (dom.transcriptCount) {
+    dom.transcriptCount.textContent = count > 0 ? count : '';
+  }
+  if (dom.wordCount) {
+    if (count > 0) {
+      let totalWords = 0;
+      for (const item of items) {
+        const textEl = item.querySelector('.transcript-text');
+        if (textEl) {
+          const words = textEl.textContent.trim().split(/\s+/).filter(w => w.length > 0);
+          totalWords += words.length;
+        }
+      }
+      dom.wordCount.textContent = `${totalWords} words`;
+    } else {
+      dom.wordCount.textContent = '';
+    }
+  }
 }
 
 function addTranscriptItem(msg) {
@@ -127,6 +146,8 @@ function addTranscriptItem(msg) {
 
   const item = document.createElement('div');
   item.className = 'transcript-item';
+  item.setAttribute('role', 'listitem');
+  item.dataset.segments = JSON.stringify(msg.segments || []);
 
   const meta = document.createElement('div');
   meta.className = 'transcript-meta';
@@ -140,7 +161,35 @@ function addTranscriptItem(msg) {
   // Text
   const text = document.createElement('span');
   text.className = 'transcript-text';
+  text.setAttribute('contenteditable', 'plaintext-only');
+  text.setAttribute('spellcheck', 'false');
   text.textContent = msg.text || '';
+
+  let savedText = msg.text || '';
+  text.addEventListener('focus', () => {
+    savedText = text.textContent;
+    item.classList.add('editing');
+  });
+  text.addEventListener('blur', () => {
+    item.classList.remove('editing');
+    const newText = text.textContent.trim();
+    if (newText && newText !== savedText && ws && msg.id) {
+      savedText = newText;
+      ws.send('update_history_entry', { id: msg.id, text: newText });
+    } else if (!newText) {
+      text.textContent = savedText;
+    }
+  });
+  text.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      text.blur();
+    }
+    if (e.key === 'Escape') {
+      text.textContent = savedText;
+      text.blur();
+    }
+  });
 
   // Language badge
   const lang = document.createElement('span');
@@ -163,7 +212,7 @@ function addTranscriptItem(msg) {
   copyBtn.className = 'transcript-action-btn';
   copyBtn.textContent = 'Copy';
   copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(msg.text || '').then(() => {
+    navigator.clipboard.writeText(text.textContent || '').then(() => {
       copyBtn.textContent = 'Copied!';
       setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
     });
@@ -179,7 +228,8 @@ function addTranscriptItem(msg) {
       if (dom.transcriptList && dom.transcriptList.children.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'transcript-empty';
-        empty.textContent = 'Press Ctrl+Shift+Space to start recording';
+        empty.setAttribute('role', 'status');
+        empty.innerHTML = '<svg class="empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg><span class="empty-title">No transcripts yet</span><span class="empty-subtitle">Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> to start recording</span>';
         dom.transcriptList.appendChild(empty);
       }
     }
@@ -296,6 +346,7 @@ function updateConfigUI(config) {
   }
   if (config.language && dom.settingLanguage) {
     dom.settingLanguage.value = config.language;
+    configLanguage = config.language;
   }
   if (config.output_mode) {
     const radio = document.querySelector(`input[name="output-mode"][value="${config.output_mode}"]`);
@@ -388,7 +439,8 @@ function renderHistory(entries) {
   if (entries.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'transcript-empty';
-    empty.textContent = 'Press Ctrl+Shift+Space to start recording';
+    empty.setAttribute('role', 'status');
+    empty.innerHTML = '<svg class="empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg><span class="empty-title">No transcripts yet</span><span class="empty-subtitle">Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> to start recording</span>';
     dom.transcriptList.appendChild(empty);
     updateTranscriptCount();
     return;
@@ -403,7 +455,7 @@ function renderHistory(entries) {
   if (entries.length > 0) {
     updateTranscriptPreview(entries[0]);
   } else if (dom.transcriptPreview) {
-    dom.transcriptPreview.innerHTML = '<div class="transcript-preview-empty">Press Ctrl+Shift+Space to start recording</div>';
+    dom.transcriptPreview.innerHTML = '<div class="transcript-preview-empty">Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> to start recording</div>';
   }
 }
 
@@ -413,7 +465,9 @@ function renderHistory(entries) {
 
 function switchTab(tabName) {
   dom.tabBtns.forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tabName);
+    const isActive = btn.dataset.tab === tabName;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', String(isActive));
   });
   dom.tabPanels.forEach(panel => {
     panel.classList.toggle('active', panel.id === 'tab-' + tabName);
@@ -463,8 +517,11 @@ function setupSettingsListeners() {
     if (el) {
       el.addEventListener('change', () => {
         if (ws) ws.send('set_config', { key, value: el.value });
-        if (key === 'language' && dom.langBadge) {
-          dom.langBadge.textContent = el.value === 'auto' ? 'AUTO' : el.value.toUpperCase();
+        if (key === 'language') {
+          configLanguage = el.value;
+          if (dom.langBadge) {
+            dom.langBadge.textContent = el.value === 'auto' ? 'AUTO' : el.value.toUpperCase();
+          }
         }
       });
     }
@@ -709,6 +766,11 @@ function connectWebSocket(port, authToken = '') {
     if (soundFeedback) soundFeedback.playTranscriptDone();
     setTrackMeter(dom.trackMeterOutput, 100);
     setTimeout(() => setTrackMeter(dom.trackMeterOutput, 34), 320);
+
+    // Show detected language in header badge when config is auto
+    if (configLanguage === 'auto' && msg.language && dom.langBadge) {
+      dom.langBadge.textContent = `AUTO \u00b7 ${msg.language.toUpperCase()}`;
+    }
   });
 
   ws.on('model_progress', (msg) => {
@@ -744,6 +806,107 @@ function connectWebSocket(port, authToken = '') {
   });
 
   ws.connect();
+}
+
+function formatSrtTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.round((seconds % 1) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+}
+
+function formatVttTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.round((seconds % 1) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+}
+
+function exportTranscripts(format) {
+  if (!dom.transcriptList) return;
+  const items = dom.transcriptList.querySelectorAll('.transcript-item');
+  if (items.length === 0) {
+    showToast('No transcripts to export', 'info');
+    return;
+  }
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  let content = '';
+  let filename = '';
+
+  if (format === 'txt') {
+    const lines = [];
+    for (const item of items) {
+      const time = item.querySelector('.transcript-time');
+      const text = item.querySelector('.transcript-text');
+      const lang = item.querySelector('.transcript-lang');
+      lines.push(`[${time ? time.textContent : ''}] [${lang ? lang.textContent : ''}] ${text ? text.textContent : ''}`);
+    }
+    content = lines.join('\n\n');
+    filename = `transcripts-${dateStr}.txt`;
+  } else if (format === 'json') {
+    const entries = [];
+    for (const item of items) {
+      const time = item.querySelector('.transcript-time');
+      const text = item.querySelector('.transcript-text');
+      const lang = item.querySelector('.transcript-lang');
+      const dur = item.querySelector('.transcript-duration');
+      let segments = [];
+      try { segments = JSON.parse(item.dataset.segments || '[]'); } catch {}
+      entries.push({
+        time: time ? time.textContent : '',
+        text: text ? text.textContent : '',
+        language: lang ? lang.textContent : '',
+        duration: dur ? dur.textContent : '',
+        segments,
+      });
+    }
+    content = JSON.stringify(entries, null, 2);
+    filename = `transcripts-${dateStr}.json`;
+  } else if (format === 'srt') {
+    let counter = 1;
+    const blocks = [];
+    for (const item of items) {
+      let segments = [];
+      try { segments = JSON.parse(item.dataset.segments || '[]'); } catch {}
+      if (segments.length > 0) {
+        for (const seg of segments) {
+          blocks.push(`${counter}\n${formatSrtTime(seg.start)} --> ${formatSrtTime(seg.end)}\n${seg.text}`);
+          counter++;
+        }
+      } else {
+        const text = item.querySelector('.transcript-text');
+        blocks.push(`${counter}\n00:00:00,000 --> 00:00:00,000\n${text ? text.textContent : ''}`);
+        counter++;
+      }
+    }
+    content = blocks.join('\n\n');
+    filename = `transcripts-${dateStr}.srt`;
+  } else if (format === 'vtt') {
+    const blocks = ['WEBVTT\n'];
+    for (const item of items) {
+      let segments = [];
+      try { segments = JSON.parse(item.dataset.segments || '[]'); } catch {}
+      if (segments.length > 0) {
+        for (const seg of segments) {
+          blocks.push(`${formatVttTime(seg.start)} --> ${formatVttTime(seg.end)}\n${seg.text}`);
+        }
+      } else {
+        const text = item.querySelector('.transcript-text');
+        blocks.push(`00:00:00.000 --> 00:00:00.000\n${text ? text.textContent : ''}`);
+      }
+    }
+    content = blocks.join('\n\n');
+    filename = `transcripts-${dateStr}.vtt`;
+  }
+
+  if (window.api && window.api.exportFile) {
+    window.api.exportFile(content, filename).then((ok) => {
+      if (ok) showToast(`Exported as ${format.toUpperCase()}`, 'info');
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -785,6 +948,8 @@ document.addEventListener('DOMContentLoaded', () => {
     connectionLabel:      document.getElementById('connection-label'),
     transcriptSearch:     document.getElementById('transcript-search'),
     btnExport:            document.getElementById('btn-export'),
+    exportDropdown:       document.getElementById('export-dropdown'),
+    exportMenu:           document.getElementById('export-menu'),
     crashOverlay:         document.getElementById('crash-overlay'),
     crashMessage:         document.getElementById('crash-message'),
     btnCrashRetry:        document.getElementById('btn-crash-retry'),
@@ -794,8 +959,13 @@ document.addEventListener('DOMContentLoaded', () => {
     trackMeterInput:      document.getElementById('track-meter-input'),
     trackMeterProcessing: document.getElementById('track-meter-processing'),
     trackMeterOutput:     document.getElementById('track-meter-output'),
-    transcriptCount:    document.getElementById('transcript-count'),
+    transcriptCount:      document.getElementById('transcript-count'),
+    wordCount:            document.getElementById('word-count'),
     btnClearHistorySettings: document.getElementById('btn-clear-history-settings'),
+    btnShortcuts:         document.getElementById('btn-shortcuts'),
+    shortcutsModal:       document.getElementById('shortcuts-modal'),
+    btnCloseShortcuts:    document.getElementById('btn-close-shortcuts'),
+    aboutRepoLink:        document.getElementById('about-repo-link'),
   };
 
   // Initialize waveform
@@ -829,6 +999,42 @@ document.addEventListener('DOMContentLoaded', () => {
   if (dom.btnClose) {
     dom.btnClose.addEventListener('click', () => window.api.closeWindow());
   }
+
+  // ---- About Link ----
+  if (dom.aboutRepoLink) {
+    dom.aboutRepoLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.open('https://github.com/riftzen-bit/voicetotex', '_blank');
+    });
+  }
+
+  // ---- Shortcuts modal ----
+  function toggleShortcutsModal(show) {
+    if (dom.shortcutsModal) {
+      dom.shortcutsModal.classList.toggle('visible', show);
+    }
+  }
+  if (dom.btnShortcuts) {
+    dom.btnShortcuts.addEventListener('click', () => toggleShortcutsModal(true));
+  }
+  if (dom.btnCloseShortcuts) {
+    dom.btnCloseShortcuts.addEventListener('click', () => toggleShortcutsModal(false));
+  }
+  if (dom.shortcutsModal) {
+    dom.shortcutsModal.addEventListener('click', (e) => {
+      if (e.target === dom.shortcutsModal) toggleShortcutsModal(false);
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === '/') {
+      e.preventDefault();
+      const isVisible = dom.shortcutsModal && dom.shortcutsModal.classList.contains('visible');
+      toggleShortcutsModal(!isVisible);
+    }
+    if (e.key === 'Escape' && dom.shortcutsModal && dom.shortcutsModal.classList.contains('visible')) {
+      toggleShortcutsModal(false);
+    }
+  });
 
   dom.tabBtns.forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -884,32 +1090,27 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---- Settings change listeners ----
   setupSettingsListeners();
 
-  // ---- Export button ----
   if (dom.btnExport) {
-    dom.btnExport.addEventListener('click', () => {
-      if (!dom.transcriptList) return;
-      const items = dom.transcriptList.querySelectorAll('.transcript-item');
-      if (items.length === 0) {
-        showToast('No transcripts to export', 'info');
-        return;
-      }
-      const lines = [];
-      for (const item of items) {
-        const time = item.querySelector('.transcript-time');
-        const text = item.querySelector('.transcript-text');
-        const lang = item.querySelector('.transcript-lang');
-        const ts = time ? time.textContent : '';
-        const tx = text ? text.textContent : '';
-        const ln = lang ? lang.textContent : '';
-        lines.push(`[${ts}] [${ln}] ${tx}`);
-      }
-      const content = lines.join('\n\n');
-      if (window.api && window.api.exportFile) {
-        const dateStr = new Date().toISOString().slice(0, 10);
-        window.api.exportFile(content, `transcripts-${dateStr}.txt`).then((ok) => {
-          if (ok) showToast('Transcripts exported', 'info');
-        });
-      }
+    dom.btnExport.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const menu = document.getElementById('export-menu');
+      if (menu) menu.classList.toggle('visible');
+    });
+  }
+
+  document.addEventListener('click', () => {
+    const menu = document.getElementById('export-menu');
+    if (menu) menu.classList.remove('visible');
+  });
+
+  const exportMenu = document.getElementById('export-menu');
+  if (exportMenu) {
+    exportMenu.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-format]');
+      if (!btn) return;
+      e.stopPropagation();
+      exportMenu.classList.remove('visible');
+      exportTranscripts(btn.dataset.format);
     });
   }
 

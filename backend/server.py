@@ -452,12 +452,30 @@ class VoiceToTexServer:
         text = self.postprocessor.process(raw_text, language=language_out)
         duration = _to_float(result.get("duration", 0.0), 0.0)
         model_name = str(self.config.get("model", ""))
+        segments_data = []
+        raw_segments = result.get("segments", [])
+        if isinstance(raw_segments, list):
+            for seg in raw_segments:
+                if isinstance(seg, dict):
+                    segments_data.append(
+                        {
+                            "start": float(seg.get("start", 0)),
+                            "end": float(seg.get("end", 0)),
+                            "text": str(seg.get("text", "")).strip(),
+                        }
+                    )
 
         if text:
             await self._inject_text(text)
             entry_id = await loop.run_in_executor(
                 self.executor,
-                lambda: self.history.add(text, language_out, duration, model_name),
+                lambda: self.history.add(
+                    text,
+                    language_out,
+                    duration,
+                    model_name,
+                    segments=segments_data,
+                ),
             )
 
             transcript_payload = {
@@ -467,6 +485,7 @@ class VoiceToTexServer:
                 "language": language_out,
                 "duration": duration,
                 "timestamp": datetime.now().isoformat(),
+                "segments": segments_data,
             }
             await self.broadcast(transcript_payload)
 
@@ -626,6 +645,21 @@ class VoiceToTexServer:
                 self.history.delete(entry_id)
                 entries = self.history.get_all()
                 await self.broadcast({"type": "history", "entries": entries})
+            return
+
+        if action == "update_history_entry":
+            entry_id = payload.get("id")
+            new_text = payload.get("text")
+            if isinstance(entry_id, str) and entry_id and isinstance(new_text, str):
+                loop = asyncio.get_running_loop()
+                updated = await loop.run_in_executor(
+                    self.executor, lambda: self.history.update(entry_id, new_text)
+                )
+                if updated:
+                    await self._send_json(
+                        websocket,
+                        {"type": "entry_updated", "id": entry_id, "text": new_text},
+                    )
             return
 
         if action == "get_config":

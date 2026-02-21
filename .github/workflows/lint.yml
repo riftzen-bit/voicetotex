@@ -1,0 +1,39 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python:
+    name: Python (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check backend/
+
+  javascript:
+    name: JavaScript (syntax)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: |
+          node --check electron/main.js
+          node --check electron/preload.js
+          node --check electron/overlay.js
+          node --check electron/overlay-preload.js
+          node --check electron/tray.js
+          node --check src/js/app.js
+          node --check src/js/waveform.js
+          node --check src/js/websocket.js
+          node --check src/js/sounds.js
+          node --check src/js/overlay.js
