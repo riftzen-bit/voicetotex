@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
   // --- Data ---
   getAudioDevices: () => ipcRenderer.invoke('get-audio-devices'),
   getHistory: () => ipcRenderer.invoke('get-history'),
+  getBackendStatus: () => ipcRenderer.invoke('get-backend-status'),
 
   // --- Window controls ---
   restartBackend: () => ipcRenderer.send('restart-backend'),

@@ -36,6 +36,8 @@ function createTrayIcon(color) {
 function resolveAppTrayIcon() {
   const candidates = [];
   if (app.isPackaged) {
+    candidates.push(path.join(app.getAppPath(), 'assets', 'icon.svg'));
+    candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'icon.svg'));
     candidates.push(path.join(process.resourcesPath, 'build', 'icons', '32x32.png'));
     candidates.push(path.join(process.resourcesPath, 'assets', 'icon.svg'));
   } else {

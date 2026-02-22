@@ -1277,23 +1277,41 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function handleBackendStatus(data) {
+    if (!data) return;
+    if (data.port) {
+      backendAuthToken = data.authToken || '';
+      if (dom.crashOverlay) dom.crashOverlay.classList.remove('visible');
+      connectWebSocket(data.port, backendAuthToken);
+      return;
+    }
+    if (data.status === 'crashed') {
+      if (dom.crashOverlay) {
+        if (dom.crashMessage) dom.crashMessage.textContent = data.message || 'The transcription engine stopped unexpectedly.';
+        dom.crashOverlay.classList.add('visible');
+      }
+      return;
+    }
+    if (data.status === 'error') {
+      showToast(data.message || 'Backend error', 'error');
+      return;
+    }
+    if (data.status === 'restarting') {
+      showToast(`Restarting backend (attempt ${data.attempt})...`, 'info');
+    }
+  }
+
   // ---- Backend status from Electron main process ----
   if (window.api && window.api.onBackendStatus) {
     window.api.onBackendStatus((data) => {
-      if (data && data.port) {
-        backendAuthToken = data.authToken || '';
-        if (dom.crashOverlay) dom.crashOverlay.classList.remove('visible');
-        connectWebSocket(data.port, backendAuthToken);
-      } else if (data && data.status === 'crashed') {
-        if (dom.crashOverlay) {
-          if (dom.crashMessage) dom.crashMessage.textContent = data.message || 'The transcription engine stopped unexpectedly.';
-          dom.crashOverlay.classList.add('visible');
-        }
-      } else if (data && data.status === 'error') {
-        showToast(data.message || 'Backend error', 'error');
-      } else if (data && data.status === 'restarting') {
-        showToast(`Restarting backend (attempt ${data.attempt})...`, 'info');
-      }
+      handleBackendStatus(data);
+    });
+  }
+  if (window.api && window.api.getBackendStatus) {
+    window.api.getBackendStatus().then((data) => {
+      handleBackendStatus(data);
+    }).catch((err) => {
+      console.warn('Failed to fetch initial backend status:', err);
     });
   }
 

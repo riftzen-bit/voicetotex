@@ -3,7 +3,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, spawnSync, execSync } = require('child_process');
 const { createTray, updateTrayState } = require('./tray');
 const { createOverlay, showOverlay, hideOverlay, updateOverlayState, destroyOverlay } = require('./overlay');
 
@@ -20,6 +20,12 @@ const STARTUP_TIMEOUT_MS = 120_000;
 let isQuitting = false;
 let isSpawning = false;
 let startupTimer = null;
+let latestBackendStatus = { status: 'loading', message: 'Initializing' };
+
+function sendBackendStatus(data) {
+  latestBackendStatus = { ...latestBackendStatus, ...data };
+  sendToRenderer('backend-status', latestBackendStatus);
+}
 
 function boundsFilePath() {
   return path.join(app.getPath('userData'), 'window-bounds.json');
@@ -133,7 +139,6 @@ function getBackendPath() {
 
 function detectCudaLibPath(pythonPath) {
   try {
-    const { execSync } = require('child_process');
     return execSync(`"${pythonPath}" -c "
 import site, os
 for base in (site.getsitepackages() + [site.getusersitepackages()]):
@@ -145,17 +150,82 @@ for base in (site.getsitepackages() + [site.getusersitepackages()]):
   } catch { return ''; }
 }
 
+function commandExists(command) {
+  try {
+    const result = spawnSync('sh', ['-lc', `command -v ${command}`], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 3000,
+      encoding: 'utf8',
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 function findPythonPath() {
   if (process.env.VOICETOTEX_PYTHON) {
     return process.env.VOICETOTEX_PYTHON;
   }
+
   const backendDir = getBackendPath();
-  return path.join(backendDir, '.venv', 'bin', 'python');
+  const packagedVenvPython = path.join(backendDir, '.venv', 'bin', 'python');
+  if (fs.existsSync(packagedVenvPython)) {
+    return packagedVenvPython;
+  }
+
+  const userVenvPython = path.join(app.getPath('userData'), 'pyenv', 'bin', 'python');
+  if (fs.existsSync(userVenvPython)) {
+    return userVenvPython;
+  }
+
+  if (commandExists('python3')) return 'python3';
+  if (commandExists('python')) return 'python';
+  return packagedVenvPython;
+}
+
+function ensurePackagedPythonEnv(backendDir) {
+  if (!app.isPackaged) return;
+
+  const packagedVenvPython = path.join(backendDir, '.venv', 'bin', 'python');
+  if (fs.existsSync(packagedVenvPython)) return;
+
+  const requirementsPath = path.join(backendDir, 'requirements.txt');
+  if (!fs.existsSync(requirementsPath)) return;
+
+  const userVenvDir = path.join(app.getPath('userData'), 'pyenv');
+  const userVenvPython = path.join(userVenvDir, 'bin', 'python');
+  if (fs.existsSync(userVenvPython)) return;
+
+  const basePython = commandExists('python3') ? 'python3' : (commandExists('python') ? 'python' : null);
+  if (!basePython) {
+    sendBackendStatus({ status: 'error', message: 'Python is not installed. Please install python3 and restart VoiceToTex.' });
+    return;
+  }
+
+  sendBackendStatus({ status: 'starting', message: 'Preparing Python environment…' });
+  const createResult = spawnSync(basePython, ['-m', 'venv', userVenvDir], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    timeout: 180000,
+  });
+  if (createResult.status !== 0) {
+    const err = (createResult.stderr || '').toString().trim();
+    sendBackendStatus({ status: 'error', message: err || 'Failed to create Python environment.' });
+    return;
+  }
+
+  const pipResult = spawnSync(userVenvPython, ['-m', 'pip', 'install', '-r', requirementsPath], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    timeout: 900000,
+  });
+  if (pipResult.status !== 0) {
+    const err = (pipResult.stderr || '').toString().trim();
+    sendBackendStatus({ status: 'error', message: err || 'Failed to install Python dependencies.' });
+  }
 }
 
 function killStaleBackend() {
   try {
-    const { execSync } = require('child_process');
     const serverScript = path.join(getBackendPath(), 'server.py');
     const pids = execSync(`pgrep -f "${serverScript}"`, { encoding: 'utf8', timeout: 3000 })
       .trim().split('\n').filter(Boolean);
@@ -182,13 +252,21 @@ function spawnPythonBackend() {
   }
   isSpawning = true;
 
-  const pythonPath = findPythonPath();
   const backendDir = getBackendPath();
   const serverScript = path.join(backendDir, 'server.py');
 
+  if (!fs.existsSync(serverScript)) {
+    sendBackendStatus({ status: 'error', message: `Backend server missing: ${serverScript}` });
+    isSpawning = false;
+    return;
+  }
+
+  ensurePackagedPythonEnv(backendDir);
+  const pythonPath = findPythonPath();
+
   killStaleBackend();
   clearStartupTimer();
-  sendToRenderer('backend-status', { status: 'starting' });
+  sendBackendStatus({ status: 'starting', message: 'Starting backend…' });
 
   const env = { ...process.env, PYTHONUNBUFFERED: '1' };
   const cudaPath = detectCudaLibPath(pythonPath);
@@ -207,7 +285,7 @@ function spawnPythonBackend() {
     startupTimer = null;
     if (isSpawning && pythonProcess) {
       console.error(`Backend startup timed out after ${STARTUP_TIMEOUT_MS / 1000}s`);
-      sendToRenderer('backend-status', {
+      sendBackendStatus({
         status: 'crashed',
         message: `Backend failed to start within ${STARTUP_TIMEOUT_MS / 1000}s. The model may be downloading — try restarting.`,
       });
@@ -227,7 +305,7 @@ function spawnPythonBackend() {
         backendPort = parseInt(match[1], 10);
         const authToken = match[2] || '';
         restartCount = 0;
-        sendToRenderer('backend-status', { port: backendPort, authToken, status: 'ready' });
+        sendBackendStatus({ port: backendPort, authToken, status: 'ready', message: 'Backend ready' });
       }
       console.log(`[backend] ${line}`);
     }
@@ -242,7 +320,7 @@ function spawnPythonBackend() {
     isSpawning = false;
     console.error(`Failed to spawn Python backend: ${err.message}`);
     pythonProcess = null;
-    sendToRenderer('backend-status', { status: 'error', message: err.message });
+    sendBackendStatus({ status: 'error', message: err.message });
   });
 
   pythonProcess.on('exit', (code, signal) => {
@@ -256,10 +334,10 @@ function spawnPythonBackend() {
       restartCount++;
       const delay = 1000 * restartCount;
       console.log(`Restarting backend (attempt ${restartCount}/${MAX_RESTARTS}) in ${delay}ms...`);
-      sendToRenderer('backend-status', { status: 'restarting', attempt: restartCount });
+      sendBackendStatus({ status: 'restarting', attempt: restartCount });
       setTimeout(() => spawnPythonBackend(), delay);
     } else if (!isQuitting && code !== 0) {
-      sendToRenderer('backend-status', { status: 'crashed', message: 'Max restarts exceeded' });
+      sendBackendStatus({ status: 'crashed', message: 'Max restarts exceeded' });
     }
   });
 }
@@ -305,6 +383,7 @@ ipcMain.handle('set-config', (_event, _key, _value) => true);
 ipcMain.handle('get-audio-devices', () => []);
 ipcMain.handle('get-history', () => []);
 ipcMain.handle('send-command', (_event, _action, _data) => null);
+ipcMain.handle('get-backend-status', () => latestBackendStatus);
 
 ipcMain.handle('export-file', async (_event, content, defaultName) => {
   if (!mainWindow || mainWindow.isDestroyed()) return false;

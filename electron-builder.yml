@@ -8,6 +8,7 @@ directories:
 files:
   - electron/**/*
   - src/**/*
+  - assets/**/*
   - package.json
   - "!**/*.map"
   - "!**/*.ts"
