@@ -133,10 +133,6 @@ class TranscriptionHistory:
             )
             self._entries.append(entry)
 
-            # Keep only the last max_entries
-            if len(self._entries) > self.max_entries:
-                self._entries = self._entries[-self.max_entries :]
-
             self._save_internal()
             return entry_id
 

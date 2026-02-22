@@ -1,6 +1,6 @@
 {
   "name": "voicetotex",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local voice-to-text desktop app powered by Whisper Large V3",
   "main": "electron/main.js",
   "scripts": {
@@ -15,7 +15,10 @@
     "electron": "^35.0.0",
     "electron-builder": "^26.0.0"
   },
-  "author": {"name": "paul", "email": "binb53339@gmail.com"},
+  "author": {
+    "name": "paul",
+    "email": "binb53339@gmail.com"
+  },
   "license": "MIT",
   "private": true
 }

@@ -2,12 +2,14 @@
 
 const { app, Menu, Tray, nativeImage } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 // --- Module state ---
 let tray = null;
 let mainWindowRef = null;
 let currentState = 'idle';
 let currentLanguage = 'auto';
+let appTrayIcon = null;
 
 // --- Tray icon generation (SVG → nativeImage, no external files) ---
 const STATE_ICON_COLORS = {
@@ -29,6 +31,27 @@ function createTrayIcon(color) {
   return nativeImage.createFromDataURL(
     `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
   );
+}
+
+function resolveAppTrayIcon() {
+  const candidates = [];
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, 'build', 'icons', '32x32.png'));
+    candidates.push(path.join(process.resourcesPath, 'assets', 'icon.svg'));
+  } else {
+    candidates.push(path.join(app.getAppPath(), 'build', 'icons', '32x32.png'));
+    candidates.push(path.join(app.getAppPath(), 'assets', 'icon.svg'));
+  }
+
+  for (const iconPath of candidates) {
+    if (!fs.existsSync(iconPath)) continue;
+    const img = nativeImage.createFromPath(iconPath);
+    if (img && !img.isEmpty()) {
+      return img.resize({ width: 18, height: 18, quality: 'best' });
+    }
+  }
+
+  return null;
 }
 
 // --- Context menu ---
@@ -113,7 +136,8 @@ function updateTrayLanguage(lang) {
 function createTray(mainWindow) {
   mainWindowRef = mainWindow;
 
-  const icon = createTrayIcon(STATE_ICON_COLORS.idle);
+  appTrayIcon = resolveAppTrayIcon();
+  const icon = appTrayIcon || createTrayIcon(STATE_ICON_COLORS.idle);
   tray = new Tray(icon);
   tray.setToolTip('VoiceToTex');
   tray.setContextMenu(buildContextMenu());
@@ -128,8 +152,12 @@ function updateTrayState(state) {
   currentState = state;
   if (!tray || tray.isDestroyed()) return;
 
-  const color = STATE_ICON_COLORS[state] || STATE_ICON_COLORS.idle;
-  tray.setImage(createTrayIcon(color));
+  if (appTrayIcon) {
+    tray.setImage(appTrayIcon);
+  } else {
+    const color = STATE_ICON_COLORS[state] || STATE_ICON_COLORS.idle;
+    tray.setImage(createTrayIcon(color));
+  }
   tray.setContextMenu(buildContextMenu());
 }
 

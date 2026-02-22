@@ -3,6 +3,7 @@ import { WaveformVisualizer } from './waveform.js';
 import { SoundFeedback } from './sounds.js';
 import { renderDashboard } from './dashboard.js';
 import { renderRewards } from './rewards.js';
+import { renderAnalysis } from './analysis.js';
 
 /* ------------------------------------------------------------------ */
 /*  State Machine                                                      */
@@ -14,7 +15,7 @@ const STATE_COLORS = {
   loading:    'rgba(255, 170, 0, 0.85)',
   ready:      'rgba(100, 200, 100, 0.85)',
   recording:  'rgba(255, 68, 68, 0.85)',
-  processing: 'rgba(100, 160, 255, 0.85)',
+  processing: 'rgba(240, 165, 0, 0.85)',
 };
 
 const STATE_LABELS = {
@@ -137,6 +138,27 @@ function updateTranscriptCount() {
     }
   }
 }
+
+function getTranscriptEntriesForAnalysis() {
+  if (!dom.transcriptList) return [];
+  const items = dom.transcriptList.querySelectorAll('.transcript-item');
+  return Array.from(items).map((item) => {
+    const textEl = item.querySelector('.transcript-text');
+    const langEl = item.querySelector('.transcript-lang');
+    const timeEl = item.querySelector('.transcript-time');
+    return {
+      text: textEl ? textEl.textContent.trim() : '',
+      language: langEl ? langEl.textContent : '',
+      time: timeEl ? timeEl.textContent : '',
+    };
+  }).filter((entry) => entry.text.length > 0);
+}
+
+function refreshAnalysisTabIfActive() {
+  const panel = document.getElementById('tab-analysis');
+  if (!panel || !panel.classList.contains('active') || !dom.analysisContainer) return;
+  renderAnalysis(dom.analysisContainer, getTranscriptEntriesForAnalysis());
+}
 function createTagPill(tag, container, entryId) {
   const pill = document.createElement('span');
   pill.className = 'annotation-tag';
@@ -174,6 +196,7 @@ function addTranscriptItem(msg) {
   item.className = 'transcript-item';
   item.setAttribute('role', 'listitem');
   item.dataset.segments = JSON.stringify(msg.segments || []);
+  item.dataset.entryId = msg.id || '';
 
   const meta = document.createElement('div');
   meta.className = 'transcript-meta';
@@ -192,19 +215,37 @@ function addTranscriptItem(msg) {
   text.textContent = msg.text || '';
 
   let savedText = msg.text || '';
+  let textSaveTimer = null;
+
+  function flushTextSave() {
+    if (textSaveTimer) {
+      clearTimeout(textSaveTimer);
+      textSaveTimer = null;
+    }
+    const newText = text.textContent.trim();
+    if (!newText) {
+      text.textContent = savedText;
+      return;
+    }
+    if (newText !== savedText && ws && msg.id) {
+      savedText = newText;
+      ws.send('update_history_entry', { id: msg.id, text: newText });
+    }
+  }
+
   text.addEventListener('focus', () => {
     savedText = text.textContent;
     item.classList.add('editing');
   });
+  text.addEventListener('input', () => {
+    if (textSaveTimer) clearTimeout(textSaveTimer);
+    textSaveTimer = setTimeout(() => {
+      flushTextSave();
+    }, 450);
+  });
   text.addEventListener('blur', () => {
     item.classList.remove('editing');
-    const newText = text.textContent.trim();
-    if (newText && newText !== savedText && ws && msg.id) {
-      savedText = newText;
-      ws.send('update_history_entry', { id: msg.id, text: newText });
-    } else if (!newText) {
-      text.textContent = savedText;
-    }
+    flushTextSave();
   });
   text.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -212,6 +253,10 @@ function addTranscriptItem(msg) {
       text.blur();
     }
     if (e.key === 'Escape') {
+      if (textSaveTimer) {
+        clearTimeout(textSaveTimer);
+        textSaveTimer = null;
+      }
       text.textContent = savedText;
       text.blur();
     }
@@ -281,10 +326,28 @@ function addTranscriptItem(msg) {
   notesInput.placeholder = 'Add a note…';
   notesInput.rows = 1;
   notesInput.value = msg.notes || '';
-  notesInput.addEventListener('blur', () => {
-    if (ws && msg.id) {
+  let savedNotes = notesInput.value;
+  let notesSaveTimer = null;
+
+  function flushNotesSave() {
+    if (notesSaveTimer) {
+      clearTimeout(notesSaveTimer);
+      notesSaveTimer = null;
+    }
+    if (ws && msg.id && notesInput.value !== savedNotes) {
+      savedNotes = notesInput.value;
       ws.send('annotate_entry', { id: msg.id, notes: notesInput.value, tags: getCurrentTags(tagsWrap) });
     }
+  }
+
+  notesInput.addEventListener('input', () => {
+    if (notesSaveTimer) clearTimeout(notesSaveTimer);
+    notesSaveTimer = setTimeout(() => {
+      flushNotesSave();
+    }, 450);
+  });
+  notesInput.addEventListener('blur', () => {
+    flushNotesSave();
   });
 
   const tagsWrap = document.createElement('div');
@@ -307,6 +370,7 @@ function addTranscriptItem(msg) {
       if (!getCurrentTags(tagsWrap).includes(newTag)) {
         tagsWrap.insertBefore(createTagPill(newTag, tagsWrap, msg.id), tagInput);
         if (ws && msg.id) {
+          savedNotes = notesInput.value;
           ws.send('annotate_entry', { id: msg.id, notes: notesInput.value, tags: getCurrentTags(tagsWrap) });
         }
       }
@@ -536,6 +600,7 @@ function renderHistory(entries) {
 /* ------------------------------------------------------------------ */
 
 function switchTab(tabName) {
+  flushPendingEditorSaves();
   dom.tabBtns.forEach(btn => {
     const isActive = btn.dataset.tab === tabName;
     btn.classList.toggle('active', isActive);
@@ -544,6 +609,17 @@ function switchTab(tabName) {
   dom.tabPanels.forEach(panel => {
     panel.classList.toggle('active', panel.id === 'tab-' + tabName);
   });
+  if (tabName === 'analysis' && dom.analysisContainer) {
+    renderAnalysis(dom.analysisContainer, getTranscriptEntriesForAnalysis());
+  }
+}
+
+function flushPendingEditorSaves() {
+  const active = document.activeElement;
+  if (!active) return;
+  if (active.classList.contains('transcript-text') || active.classList.contains('annotation-notes')) {
+    active.blur();
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -835,6 +911,7 @@ function connectWebSocket(port, authToken = '') {
 
   ws.on('transcript', (msg) => {
     addTranscriptItem(msg);
+    refreshAnalysisTabIfActive();
     if (soundFeedback) soundFeedback.playTranscriptDone();
     setTrackMeter(dom.trackMeterOutput, 100);
     setTimeout(() => setTrackMeter(dom.trackMeterOutput, 34), 320);
@@ -859,6 +936,7 @@ function connectWebSocket(port, authToken = '') {
 
   ws.on('history', (msg) => {
     renderHistory(msg.entries);
+    refreshAnalysisTabIfActive();
   });
 
   ws.on('devices', (msg) => {
@@ -1046,6 +1124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     aboutRepoLink:        document.getElementById('about-repo-link'),
     dashboardContainer:   document.getElementById('dashboard-container'),
     rewardsContainer:     document.getElementById('rewards-container'),
+    analysisContainer:    document.getElementById('analysis-container'),
   };
 
   // Initialize waveform
@@ -1114,6 +1193,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape' && dom.shortcutsModal && dom.shortcutsModal.classList.contains('visible')) {
       toggleShortcutsModal(false);
     }
+  });
+
+  window.addEventListener('beforeunload', () => {
+    flushPendingEditorSaves();
   });
 
   dom.tabBtns.forEach(btn => {

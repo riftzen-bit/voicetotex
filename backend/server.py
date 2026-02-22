@@ -681,14 +681,24 @@ class VoiceToTexServer:
             entry_id = payload.get("id")
             new_text = payload.get("text")
             if isinstance(entry_id, str) and entry_id and isinstance(new_text, str):
-                loop = asyncio.get_running_loop()
-                updated = await loop.run_in_executor(
-                    self.executor, lambda: self.history.update(entry_id, new_text)
-                )
-                if updated:
+                cleaned_text = new_text.strip()
+                if not cleaned_text:
                     await self._send_json(
                         websocket,
-                        {"type": "entry_updated", "id": entry_id, "text": new_text},
+                        {"type": "error", "message": "History text cannot be empty"},
+                    )
+                    return
+                loop = asyncio.get_running_loop()
+                updated = await loop.run_in_executor(
+                    self.executor, lambda: self.history.update(entry_id, cleaned_text)
+                )
+                if updated:
+                    entries = self.history.get_all()
+                    await self.broadcast({"type": "history", "entries": entries})
+                else:
+                    await self._send_json(
+                        websocket,
+                        {"type": "error", "message": "History entry not found"},
                     )
             return
 
@@ -711,9 +721,7 @@ class VoiceToTexServer:
             rewards_data = await loop.run_in_executor(
                 self.executor, self.rewards.get_rewards
             )
-            await self._send_json(
-                websocket, {"type": "rewards", "data": rewards_data}
-            )
+            await self._send_json(websocket, {"type": "rewards", "data": rewards_data})
             return
 
         if action == "annotate_entry":
@@ -737,12 +745,8 @@ class VoiceToTexServer:
 
         if action == "get_tags":
             loop = asyncio.get_running_loop()
-            tags = await loop.run_in_executor(
-                self.executor, self.history.get_all_tags
-            )
-            await self._send_json(
-                websocket, {"type": "tags", "tags": tags}
-            )
+            tags = await loop.run_in_executor(self.executor, self.history.get_all_tags)
+            await self._send_json(websocket, {"type": "tags", "tags": tags})
             return
 
         if action == "shutdown":
