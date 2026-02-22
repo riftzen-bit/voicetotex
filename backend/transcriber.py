@@ -44,14 +44,55 @@ class Transcriber:
         if on_progress is not None:
             on_progress("loading", 60.0)
 
-        new_model = WhisperModel(
-            model_name,
-            device=device,
-            compute_type=compute_type,
-        )
+        actual_device = device
+        actual_compute = compute_type
+
+        # "auto" mode: prefer CUDA, fall back to CPU
+        if actual_device == "auto":
+            actual_device = "cpu"
+            try:
+                import ctranslate2
+                if "cuda" in ctranslate2.get_supported_compute_types("cuda"):
+                    actual_device = "cuda"
+            except Exception:
+                pass
+            if actual_device == "cpu" and actual_compute == "float16":
+                actual_compute = "int8"
+            logger.info("Auto device detection: selected %s", actual_device)
+
+        try:
+            new_model = WhisperModel(
+                model_name,
+                device=actual_device,
+                compute_type=actual_compute,
+            )
+        except Exception as exc:
+            if actual_device != "cpu":
+                logger.warning(
+                    "Failed to load model on %s: %s — falling back to CPU",
+                    actual_device,
+                    exc,
+                )
+                actual_device = "cpu"
+                # float16 is not supported on CPU, use int8 for speed
+                if actual_compute == "float16":
+                    actual_compute = "int8"
+
+                if on_progress is not None:
+                    on_progress("loading_cpu_fallback", 65.0)
+
+                new_model = WhisperModel(
+                    model_name,
+                    device="cpu",
+                    compute_type=actual_compute,
+                )
+            else:
+                raise
 
         with self._lock:
             self._model = new_model
+            self._device = actual_device
+            self._compute_type = actual_compute
             self._ready.set()
 
         if on_progress is not None:
@@ -75,8 +116,18 @@ class Transcriber:
 
         processed = self._preprocess(audio, noise_reduce=noise_reduce)
 
+        # Clamp VAD threshold to a sane range — values above 0.8 reject
+        # almost all speech and are almost certainly misconfigured.
+        clamped_vad = max(0.1, min(0.8, vad_threshold))
+        if clamped_vad != vad_threshold:
+            logger.warning(
+                "VAD threshold %.2f clamped to %.2f (range 0.1–0.8)",
+                vad_threshold,
+                clamped_vad,
+            )
+
         vad_options = VadOptions(
-            threshold=vad_threshold,
+            threshold=clamped_vad,
             neg_threshold=0.25,
             min_speech_duration_ms=100,
             min_silence_duration_ms=300,

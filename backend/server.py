@@ -1,6 +1,7 @@
 # pyright: reportImplicitRelativeImport=false, reportMissingImports=false
 import argparse
 import asyncio
+import errno
 import json
 import logging
 import os
@@ -142,7 +143,7 @@ class VoiceToTexServer:
                 self._handle_client, "127.0.0.1", self.port
             )
         except OSError as exc:
-            if exc.errno == 98:  # EADDRINUSE
+            if exc.errno == errno.EADDRINUSE:
                 LOGGER.warning("Port %d busy, binding to random free port", self.port)
                 self.server = await websockets.serve(
                     self._handle_client, "127.0.0.1", 0
@@ -181,6 +182,10 @@ class VoiceToTexServer:
             self._model_load_task = None
 
         if not self._is_shutting_down:
+            # Notify frontend of actual device (may differ from config after
+            # CUDA → CPU fallback) so the UI can display the correct status.
+            model_info = self.transcriber.get_model_info()
+            await self.broadcast({"type": "model_info", **model_info})
             await self._set_state("ready", "Ready")
 
     async def _set_state(self, state: str, message: str = "") -> None:
@@ -967,15 +972,15 @@ def _preload_cuda_libs() -> None:
     except AttributeError:
         pass
 
-    libs_to_preload = ["libcublas.so.12", "libcublasLt.so.12"]
+    lib_prefixes = ["libcublas.so", "libcublasLt.so"]
 
     for base in search_dirs:
         nvidia_lib = os.path.join(base, "nvidia", "cublas", "lib")
         if not os.path.isdir(nvidia_lib):
             continue
-        for lib_name in libs_to_preload:
-            lib_path = os.path.join(nvidia_lib, lib_name)
-            if os.path.isfile(lib_path):
+        for entry in sorted(os.listdir(nvidia_lib), reverse=True):
+            if any(entry.startswith(pfx) for pfx in lib_prefixes):
+                lib_path = os.path.join(nvidia_lib, entry)
                 try:
                     ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
                 except OSError:

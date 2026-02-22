@@ -461,9 +461,16 @@ function showConfirm(message, onConfirm) {
 /*  Loading Progress                                                   */
 /* ------------------------------------------------------------------ */
 
+const LOADING_STAGE_LABELS = {
+  downloading: 'Downloading model…',
+  loading: 'Loading model…',
+  loading_cpu_fallback: 'GPU unavailable — loading on CPU…',
+  ready: 'Ready',
+};
+
 function updateLoadingProgress(stage, percent) {
   if (dom.loadingText) {
-    dom.loadingText.textContent = stage || 'Loading model…';
+    dom.loadingText.textContent = LOADING_STAGE_LABELS[stage] || stage || 'Loading model…';
   }
   if (dom.progressFill) {
     dom.progressFill.style.width = `${Math.max(0, Math.min(100, percent || 0))}%`;
@@ -533,6 +540,10 @@ function updateConfigUI(config) {
 
   if (config.audio_device != null && dom.settingDevice) {
     dom.settingDevice.value = config.audio_device;
+  }
+
+  if (config.theme) {
+    applyTheme(config.theme);
   }
 
   // Update header badges
@@ -720,6 +731,17 @@ function setupSettingsListeners() {
     });
   }
 
+  // Theme switcher
+  if (dom.themeSwitcher) {
+    dom.themeSwitcher.addEventListener('click', (e) => {
+      const btn = e.target.closest('.theme-option');
+      if (!btn || btn.classList.contains('active')) return;
+      const theme = btn.dataset.theme;
+      applyTheme(theme);
+      if (ws) ws.send('set_config', { key: 'theme', value: theme });
+    });
+  }
+
   // Clear history (both Transcripts toolbar and Settings page buttons)
   const clearHistoryHandler = () => {
     showConfirm('Clear all transcription history?', () => {
@@ -890,6 +912,32 @@ function filterTranscripts(query) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Theme System                                                       */
+/* ------------------------------------------------------------------ */
+
+function applyTheme(theme) {
+  const validTheme = (theme === 'light') ? 'light' : 'dark';
+  const root = document.documentElement;
+
+  root.setAttribute('data-theme-transitioning', '');
+  root.setAttribute('data-theme', validTheme);
+
+  setTimeout(() => {
+    root.removeAttribute('data-theme-transitioning');
+  }, 400);
+
+  if (dom.themeSwitcher) {
+    dom.themeSwitcher.querySelectorAll('.theme-option').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.theme === validTheme);
+    });
+  }
+
+  if (waveform) {
+    waveform.setColor(STATE_COLORS[currentState]);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  WebSocket Wiring                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -899,6 +947,7 @@ function connectWebSocket(port, authToken = '') {
   ws = new WebSocketClient(`ws://127.0.0.1:${port}`, authToken);
 
   ws.on('status', (msg) => {
+    if (soundFeedback) soundFeedback.warmUp();
     if (msg.state) setState(msg.state);
   });
 
@@ -924,6 +973,13 @@ function connectWebSocket(port, authToken = '') {
 
   ws.on('model_progress', (msg) => {
     updateLoadingProgress(msg.stage, msg.percent);
+  });
+
+  ws.on('model_info', (msg) => {
+    if (msg.device && dom.studioState) {
+      const label = msg.device === 'cpu' ? 'Ready (CPU)' : 'Ready';
+      dom.studioState.textContent = label;
+    }
   });
 
   ws.on('error', (msg) => {
@@ -1125,6 +1181,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dashboardContainer:   document.getElementById('dashboard-container'),
     rewardsContainer:     document.getElementById('rewards-container'),
     analysisContainer:    document.getElementById('analysis-container'),
+    themeSwitcher:        document.getElementById('theme-switcher'),
   };
 
   // Initialize waveform
@@ -1207,32 +1264,53 @@ document.addEventListener('DOMContentLoaded', () => {
   if (dom.micBtn) {
     let micHolding = false;
 
-    dom.micBtn.addEventListener('mousedown', (e) => {
+    function sendRecordingCommand(action) {
+      if (!ws || !ws.isConnected) {
+        showToast('Not connected to backend — waiting for reconnect', 'error');
+        return false;
+      }
+      ws.send(action);
+      return true;
+    }
+
+    dom.micBtn.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       if (soundFeedback) soundFeedback.warmUp();
+
       if (hotkeyMode === 'hold' && currentState === 'ready') {
+        dom.micBtn.setPointerCapture(e.pointerId);
         micHolding = true;
-        if (ws) ws.send('start_recording');
+        sendRecordingCommand('start_recording');
       }
     });
 
-    const endHold = () => {
+    dom.micBtn.addEventListener('pointerup', (e) => {
       if (micHolding && hotkeyMode === 'hold' && currentState === 'recording') {
-        if (ws) ws.send('stop_recording');
+        sendRecordingCommand('stop_recording');
       }
       micHolding = false;
-    };
+      if (dom.micBtn.hasPointerCapture(e.pointerId)) {
+        dom.micBtn.releasePointerCapture(e.pointerId);
+      }
+    });
 
-    dom.micBtn.addEventListener('mouseup', endHold);
-    dom.micBtn.addEventListener('mouseleave', endHold);
+    dom.micBtn.addEventListener('pointercancel', (e) => {
+      if (micHolding && hotkeyMode === 'hold' && currentState === 'recording') {
+        sendRecordingCommand('stop_recording');
+      }
+      micHolding = false;
+      if (dom.micBtn.hasPointerCapture(e.pointerId)) {
+        dom.micBtn.releasePointerCapture(e.pointerId);
+      }
+    });
 
     dom.micBtn.addEventListener('click', () => {
       if (soundFeedback) soundFeedback.warmUp();
       if (hotkeyMode === 'hold') return;
       if (currentState === 'ready') {
-        if (ws) ws.send('start_recording');
+        sendRecordingCommand('start_recording');
       } else if (currentState === 'recording') {
-        if (ws) ws.send('stop_recording');
+        sendRecordingCommand('stop_recording');
       }
     });
 
@@ -1241,12 +1319,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (hotkeyMode === 'hold' && currentState === 'ready') {
         e.preventDefault();
         micHolding = true;
-        if (ws) ws.send('start_recording');
+        sendRecordingCommand('start_recording');
       }
     }, { passive: false });
 
     dom.micBtn.addEventListener('touchend', () => {
-      endHold();
+      if (micHolding && hotkeyMode === 'hold' && currentState === 'recording') {
+        sendRecordingCommand('stop_recording');
+      }
+      micHolding = false;
     });
   }
 

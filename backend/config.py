@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import cast
@@ -22,6 +23,7 @@ DEFAULTS = {
     "noise_reduction": True,
     "websocket_port": 8765,
     "initial_prompt": "",
+    "theme": "dark",
     "max_history": 100,
     "max_recording_seconds": 300,
 }
@@ -53,13 +55,15 @@ VALID_LANGUAGES = {
     "hu",
 }
 
-VALID_DEVICES = {"cuda", "cpu", "mps"}
+VALID_DEVICES = {"auto", "cuda", "cpu", "mps"}
 VALID_COMPUTE_TYPES = {"float16", "float32", "int8"}
 VALID_OUTPUT_MODES = {"type", "paste", "copy"}
 VALID_HOTKEY_MODES = {"hold", "toggle"}
+VALID_THEMES = {"dark", "light"}
 
 _config_lock = threading.Lock()
-_config_path = Path.home() / ".config" / "voicetotex" / "config.json"
+_xdg_config = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+_config_path = Path(_xdg_config) / "voicetotex" / "config.json"
 _config_cache: dict[str, object] | None = None
 
 
@@ -100,6 +104,8 @@ def _validate_value(key: str, value: object) -> bool:
         return isinstance(value, str) and len(value) > 0
     elif key == "initial_prompt":
         return isinstance(value, str)
+    elif key == "theme":
+        return value in VALID_THEMES
     return True
 
 

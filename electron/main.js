@@ -7,9 +7,27 @@ const { spawn, spawnSync, execSync } = require('child_process');
 const { createTray, updateTrayState } = require('./tray');
 const { createOverlay, showOverlay, hideOverlay, updateOverlayState, destroyOverlay } = require('./overlay');
 
-app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal,UseOzonePlatform,WaylandWindowDecorations');
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
 app.commandLine.appendSwitch('enable-wayland-ime');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+
+// Only enable aggressive GPU flags when not running on Nouveau (known to crash).
+const isNouveauGpu = (() => {
+  try {
+    const glxinfo = spawnSync('sh', ['-c', 'glxinfo 2>/dev/null | head -20'], {
+      encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return glxinfo.stdout && /nouveau/i.test(glxinfo.stdout);
+  } catch { return false; }
+})();
+
+if (!isNouveauGpu) {
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+  app.commandLine.appendSwitch('enable-zero-copy');
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+}
 
 let mainWindow = null;
 let pythonProcess = null;
@@ -152,7 +170,7 @@ for base in (site.getsitepackages() + [site.getusersitepackages()]):
 
 function commandExists(command) {
   try {
-    const result = spawnSync('sh', ['-lc', `command -v ${command}`], {
+    const result = spawnSync('which', [command], {
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 3000,
       encoding: 'utf8',
@@ -256,13 +274,18 @@ function ensurePackagedPythonEnv(backendDir) {
 function killStaleBackend() {
   try {
     const serverScript = path.join(getBackendPath(), 'server.py');
-    const pids = execSync(`pgrep -f "${serverScript}"`, { encoding: 'utf8', timeout: 3000 })
-      .trim().split('\n').filter(Boolean);
+    const result = spawnSync('pgrep', ['-f', serverScript], {
+      encoding: 'utf8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (result.status !== 0 || !result.stdout) return;
+    const pids = result.stdout.trim().split('\n').filter(Boolean);
     for (const pid of pids) {
       try { process.kill(Number(pid), 'SIGTERM'); } catch { /* already dead */ }
     }
     if (pids.length > 0) {
-      execSync('sleep 1', { timeout: 3000 });
+      spawnSync('sleep', ['1'], { timeout: 3000 });
     }
   } catch { /* no stale processes, or pgrep not found — fine */ }
 }

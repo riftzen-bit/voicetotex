@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -11,7 +12,8 @@ from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 _history_lock = threading.Lock()
-_history_path = Path.home() / ".config" / "voicetotex" / "history.json"
+_xdg_config = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+_history_path = Path(_xdg_config) / "voicetotex" / "history.json"
 
 _ENTRY_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "id": str,

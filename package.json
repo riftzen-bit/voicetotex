@@ -1,6 +1,6 @@
 {
   "name": "voicetotex",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Local voice-to-text desktop app powered by Whisper Large V3",
   "main": "electron/main.js",
   "scripts": {

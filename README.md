@@ -1,36 +1,65 @@
-# VoiceToTex: Local Voice-to-Text for Desktop
+# VoiceToTex
 
-![VoiceToTex Screenshot](docs/screenshot.png)
+**Local, offline voice-to-text for Linux — powered by Whisper Large V3.**
 
-## Feature highlights
+Press a hotkey, speak, release. Your words appear as text instantly — no cloud, no latency, no subscription.
 
-* Local and offline Whisper transcription
-* Global hotkey with hold-to-talk and toggle modes
-* Floating overlay
-* Multi-language support including Vietnamese, English, and 10+ other languages
-* Real-time waveform visualization
-* Transcript history with search and export
-* Audio ducking
-* Customizable settings
-* System tray integration
+<p align="center">
+  <img src="docs/screenshots/studio-dark.png" alt="VoiceToTex Studio — Dark Theme" width="720">
+</p>
 
-## Tech stack
+---
 
-* Electron 35
-* Python 3.11+
-* faster-whisper (CTranslate2)
-* WebSocket IPC
+## Features
 
-## Prerequisites
+- **Fully offline** — Whisper runs locally on your GPU. Nothing leaves your machine.
+- **Global hotkey** — Hold `Ctrl+Super+Space` to talk, release to transcribe. Or toggle mode.
+- **20+ languages** — Auto-detect or lock to Vietnamese, English, Japanese, and more.
+- **Dark & Light themes** — Switch instantly in Settings → Appearance.
+- **Real-time waveform** — Live audio visualization while recording.
+- **Transcript history** — Search, edit, tag, and export all your transcriptions.
+- **Audio ducking** — Automatically mutes other apps while you record.
+- **Sound feedback** — Chirps on record start/stop, chime on transcript ready.
+- **Floating overlay** — Compact always-on-top indicator during recording.
+- **Smart text injection** — Paste, type (xdotool), or copy-to-clipboard output modes.
+- **Dashboard & gamification** — Track usage stats and earn milestones.
+- **Session analysis** — AI-powered insights on your transcription patterns.
 
-* Node.js 18+
-* Python 3.11+
-* CUDA-compatible GPU (recommended)
-* Linux (primary platform)
-* pip
-* npm
+---
 
-## Quick Start
+## Screenshots
+
+### Dark Theme
+
+<p align="center">
+  <img src="docs/screenshots/studio-dark.png" alt="Studio" width="420">
+  <img src="docs/screenshots/transcripts-dark.png" alt="Transcripts" width="420">
+</p>
+<p align="center">
+  <img src="docs/screenshots/settings-dark.png" alt="Settings" width="420">
+  <img src="docs/screenshots/dashboard-dark.png" alt="Dashboard" width="420">
+</p>
+
+### Light Theme
+
+<p align="center">
+  <img src="docs/screenshots/studio-light.png" alt="Studio — Light" width="420">
+  <img src="docs/screenshots/settings-light.png" alt="Settings — Light" width="420">
+</p>
+
+---
+
+## Install
+
+### Pre-built .deb (Ubuntu/Debian)
+
+Download the latest `.deb` from [Releases](https://github.com/riftzen-bit/voicetotex/releases), then:
+
+```bash
+sudo dpkg -i voicetotex_1.1.0_amd64.deb
+```
+
+### From source
 
 ```bash
 git clone https://github.com/riftzen-bit/voicetotex.git
@@ -39,69 +68,115 @@ bash scripts/setup.sh
 bash scripts/start.sh
 ```
 
-### Manual setup
+#### Manual setup
 
-To set up the environment manually:
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r backend/requirements.txt
+npm install
+npm start
+```
 
-1. Create and activate a Python virtual environment:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-2. Install Python dependencies:
-   ```bash
-   pip install -r backend/requirements.txt
-   ```
-3. Install Node.js dependencies:
-   ```bash
-   npm install
-   ```
+---
 
 ## Usage
 
 | Shortcut | Action |
-| --- | --- |
-| Ctrl+Shift+Space | Start/Stop recording (Global hotkey) |
-| Ctrl+Shift+V | Paste transcribed text |
+|---|---|
+| `Ctrl+Super+Space` | Hold to record, release to transcribe |
+| Mic button | Click or hold (follows hotkey mode setting) |
 
-The application supports both hold-to-talk and toggle recording modes. You can initiate recording using the global hotkey or the microphone button on the floating overlay. The overlay remains visible during recording to provide visual feedback and waveform visualization.
+**Output modes:** Paste (clipboard → Ctrl+V), Type (xdotool keystrokes), or Copy-only.
+
+---
 
 ## Configuration
 
-The settings menu allows for detailed configuration:
+All settings are in the **Settings** tab:
 
-* **Model selection:** Choose different Whisper model sizes based on hardware capabilities.
-* **Language:** Set the primary language for transcription.
-* **VAD threshold:** Adjust Voice Activity Detection sensitivity.
-* **Beam size:** Configure the search beam size for transcription accuracy.
-* **Output modes:** Choose between paste (clipboard), type (xdotool), or copy-only.
-* **Noise reduction:** Enable filters to improve transcription in noisy environments.
+| Section | Options |
+|---|---|
+| **Appearance** | Dark / Light theme |
+| **Recognition** | Model size, language, beam size, initial prompt |
+| **Input** | Audio device, VAD sensitivity, noise reduction |
+| **Output** | Output mode (paste/type/copy), hotkey, hotkey mode |
+| **Advanced** | WebSocket port, max recording duration |
 
-## Architecture overview
+Config is stored at `~/.config/voicetotex/config.json`.
 
-VoiceToTex uses a decoupled architecture. The Electron main process manages the system tray, application windows, and the floating overlay. A Python backend handles audio processing and Whisper transcription. Communication between the renderer and the Python backend occurs via WebSockets rather than standard Electron IPC to facilitate real-time data streaming.
+---
 
-## Project structure
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Desktop shell | Electron 35 |
+| Transcription | faster-whisper (CTranslate2) on CUDA/CPU |
+| Backend | Python 3.11+ WebSocket server |
+| IPC | WebSocket (real-time audio levels + state) |
+| Audio | PulseAudio/PipeWire via sounddevice |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│  Electron Main Process                      │
+│  ├── BrowserWindow (renderer)               │
+│  ├── System Tray                            │
+│  └── Floating Overlay                       │
+└──────────────┬──────────────────────────────┘
+               │ spawns
+┌──────────────▼──────────────────────────────┐
+│  Python Backend (WebSocket server)          │
+│  ├── AudioCapture (sounddevice)             │
+│  ├── Transcriber (faster-whisper)           │
+│  ├── AudioDucker (pactl)                    │
+│  ├── TextInjector (xdotool/xclip/xsel)     │
+│  ├── HotkeyListener (pynput)               │
+│  └── TranscriptionHistory (JSON)            │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## Project Structure
 
 ```
 voicetotex/
-├── electron/      # Main process (window, tray, overlay)
-├── src/           # Renderer (HTML, CSS, JS)
-├── backend/       # Python WebSocket server + Whisper
-├── scripts/       # Setup & start scripts
+├── electron/          # Main process, preload, tray, overlay
+├── src/
+│   ├── css/           # Styles (dark/light themes)
+│   ├── js/            # App logic, waveform, sounds, websocket
+│   └── index.html     # Main renderer
+├── backend/           # Python server, transcriber, audio
+├── scripts/           # setup.sh, start.sh
+├── build/             # Packaging scripts
+├── docs/screenshots/  # App screenshots
 └── package.json
 ```
 
-## Contributing
+---
 
-Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
+## Requirements
+
+- **OS:** Linux (Ubuntu 22.04+ recommended)
+- **GPU:** NVIDIA with CUDA support (recommended for real-time transcription)
+- **CPU:** Works on CPU too (set device to `cpu` in settings, slower)
+- **Python:** 3.11+
+- **Node.js:** 18+
+
+---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)
 
-## Credits and Acknowledgments
+---
 
-* [OpenAI Whisper](https://github.com/openai/whisper)
-* [faster-whisper](https://github.com/SYSTRAN/faster-whisper) / [CTranslate2](https://github.com/OpenNMT/CTranslate2)
-* [Electron](https://www.electronjs.org/)
+## Acknowledgments
+
+- [OpenAI Whisper](https://github.com/openai/whisper)
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) / [CTranslate2](https://github.com/OpenNMT/CTranslate2)
+- [Electron](https://www.electronjs.org/)

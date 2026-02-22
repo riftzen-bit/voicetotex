@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
@@ -138,6 +138,40 @@
     <!-- Settings Tab -->
     <div id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-settings">
       <div class="settings-body">
+
+        <!-- Section: Appearance -->
+        <div class="settings-group">
+          <div class="settings-group-header">
+            <h3 class="settings-group-title">Appearance</h3>
+            <p class="settings-group-desc">Customize the look and feel</p>
+          </div>
+          <div class="settings-group-body">
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <label class="settings-label">Theme</label>
+                <span class="settings-description">Switch between dark and light interface</span>
+              </div>
+              <div class="theme-switcher" id="theme-switcher">
+                <button type="button" class="theme-option active" data-theme="dark" aria-label="Dark theme">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                  </svg>
+                  Dark
+                </button>
+                <button type="button" class="theme-option" data-theme="light" aria-label="Light theme">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="12" cy="12" r="5"/>
+                    <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                  Light
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Section: Recognition -->
         <div class="settings-group">

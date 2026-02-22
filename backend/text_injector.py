@@ -1,9 +1,11 @@
 """
-TextInjector: Auto-typing and clipboard operations for Wayland.
+TextInjector: Auto-typing and clipboard operations for Linux.
 
-Uses ydotool (uinput, compositor-agnostic) as primary backend with wtype
-(wlroots-only) as fallback.  Clipboard via wl-copy.  Focus save/restore
-via xdotool (XWayland) or compositor-specific tools.
+Supports both Wayland and X11 sessions. Uses ydotool (uinput,
+compositor-agnostic) as primary backend with wtype (wlroots-only) and
+xdotool (X11) as fallbacks. Clipboard via wl-copy (Wayland) or
+xclip/xsel (X11). Focus save/restore via xdotool (XWayland) or
+compositor-specific tools.
 """
 
 import json as _json
@@ -49,28 +51,44 @@ _TERMINAL_KEYWORDS = (
 )
 
 
+def _detect_session_type() -> str:
+    """Return 'wayland' or 'x11' based on the current session."""
+    if os.environ.get("WAYLAND_DISPLAY"):
+        return "wayland"
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if session_type == "wayland":
+        return "wayland"
+    return "x11"
+
+
 class TextInjector:
-    """Injects text into focused windows and manages clipboard on Wayland."""
+    """Injects text into focused windows and manages clipboard on Linux."""
 
     def __init__(self) -> None:
+        self._session_type: str = _detect_session_type()
         self._ydotool: bool = shutil.which("ydotool") is not None
         self._wtype: bool = self._probe_wtype()
         self._wl_copy: bool = shutil.which("wl-copy") is not None
+        self._xclip: bool = shutil.which("xclip") is not None
+        self._xsel: bool = shutil.which("xsel") is not None
         self._xdotool: bool = shutil.which("xdotool") is not None
 
         self._compositor: str | None = self._detect_compositor()
         self._saved_window_id: str | int | None = None
 
-        if not self._ydotool and not self._wtype:
-            logger.warning("No typing backend available — install ydotool or wtype")
-        if not self._wl_copy:
-            logger.warning("wl-copy not found — clipboard operations unavailable")
+        if not self._ydotool and not self._wtype and not self._xdotool:
+            logger.warning("No typing backend available — install ydotool, wtype, or xdotool")
+        if not self._wl_copy and not self._xclip and not self._xsel:
+            logger.warning("No clipboard tool found — install wl-clipboard, xclip, or xsel")
 
         logger.info(
-            "TextInjector: ydotool=%s wtype=%s wl_copy=%s xdotool=%s compositor=%s",
+            "TextInjector: session=%s ydotool=%s wtype=%s wl_copy=%s xclip=%s xsel=%s xdotool=%s compositor=%s",
+            self._session_type,
             self._ydotool,
             self._wtype,
             self._wl_copy,
+            self._xclip,
+            self._xsel,
             self._xdotool,
             self._compositor or "unknown",
         )
@@ -95,12 +113,17 @@ class TextInjector:
             return False
 
     def is_available(self) -> dict[str, bool]:
+        can_clipboard = self._wl_copy or self._xclip or self._xsel
         return {
             "ydotool": self._ydotool,
             "wtype": self._wtype,
+            "xdotool": self._xdotool,
             "wl_copy": self._wl_copy,
-            "can_type": self._ydotool or self._wtype,
-            "can_paste": (self._ydotool or self._wtype) and self._wl_copy,
+            "xclip": self._xclip,
+            "xsel": self._xsel,
+            "session_type": self._session_type == "wayland",
+            "can_type": self._ydotool or self._wtype or self._xdotool,
+            "can_paste": (self._ydotool or self._wtype or self._xdotool) and can_clipboard,
         }
 
     def type_text(self, text: str, mode: str = "type") -> bool:
@@ -125,9 +148,30 @@ class TextInjector:
     def copy_to_clipboard(self, text: str) -> bool:
         if not text:
             return True
-        if not self._wl_copy:
-            logger.error("wl-copy not available")
-            return False
+
+        # Try Wayland clipboard first if in Wayland session
+        if self._session_type == "wayland" and self._wl_copy:
+            if self._copy_wl_copy(text):
+                return True
+
+        # Try X11 clipboard tools
+        if self._xclip:
+            if self._copy_xclip(text):
+                return True
+
+        if self._xsel:
+            if self._copy_xsel(text):
+                return True
+
+        # Fallback to wl-copy even on X11 (might work via XWayland)
+        if self._wl_copy and self._session_type != "wayland":
+            if self._copy_wl_copy(text):
+                return True
+
+        logger.error("No clipboard tool available or all failed")
+        return False
+
+    def _copy_wl_copy(self, text: str) -> bool:
         try:
             _ = subprocess.run(
                 ["wl-copy", "--"],
@@ -137,7 +181,33 @@ class TextInjector:
             )
             return True
         except Exception as exc:
-            logger.error("wl-copy failed: %s", exc)
+            logger.debug("wl-copy failed: %s", exc)
+            return False
+
+    def _copy_xclip(self, text: str) -> bool:
+        try:
+            _ = subprocess.run(
+                ["xclip", "-selection", "clipboard"],
+                input=text.encode("utf-8"),
+                timeout=5,
+                check=True,
+            )
+            return True
+        except Exception as exc:
+            logger.debug("xclip failed: %s", exc)
+            return False
+
+    def _copy_xsel(self, text: str) -> bool:
+        try:
+            _ = subprocess.run(
+                ["xsel", "--clipboard", "--input"],
+                input=text.encode("utf-8"),
+                timeout=5,
+                check=True,
+            )
+            return True
+        except Exception as exc:
+            logger.debug("xsel failed: %s", exc)
             return False
 
     def _type_direct(self, text: str) -> bool:
@@ -151,27 +221,39 @@ class TextInjector:
             if ok:
                 return True
 
+        if self._xdotool:
+            ok = self._xdotool_type(text)
+            if ok:
+                return True
+
         logger.debug("Direct typing failed, falling back to clipboard")
         return self._type_via_clipboard(text)
 
     def _type_via_clipboard(self, text: str) -> bool:
         if not self.copy_to_clipboard(text):
             return False
-        time.sleep(0.12)
+        time.sleep(0.15)
         return self._simulate_paste()
 
     def _simulate_paste(self) -> bool:
+        # Always use Ctrl+Shift+V — works in terminals AND most modern
+        # GUI apps (browsers, VS Code, text editors, IDEs).
+        use_shift = True
+
         for backend in ["xdotool", "ydotool", "wtype"]:
             if backend == "xdotool" and self._xdotool:
-                ok = self._xdotool_paste(with_shift=True)
+                ok = self._xdotool_paste(with_shift=use_shift)
                 if ok:
                     return True
             if backend == "ydotool" and self._ydotool:
-                ok = self._ydotool_key_combo([_KEY_LEFTCTRL, _KEY_LEFTSHIFT], _KEY_V)
+                if use_shift:
+                    ok = self._ydotool_key_combo([_KEY_LEFTCTRL, _KEY_LEFTSHIFT], _KEY_V)
+                else:
+                    ok = self._ydotool_key_combo([_KEY_LEFTCTRL], _KEY_V)
                 if ok:
                     return True
             if backend == "wtype" and self._wtype:
-                ok = self._wtype_paste(with_shift=True)
+                ok = self._wtype_paste(with_shift=use_shift)
                 if ok:
                     return True
 
@@ -247,6 +329,18 @@ class TextInjector:
             return True
         except Exception as exc:
             logger.warning("ydotool key failed: %s", exc)
+            return False
+
+    def _xdotool_type(self, text: str) -> bool:
+        try:
+            _ = subprocess.run(
+                ["xdotool", "type", "--clearmodifiers", "--delay", "2", "--", text],
+                timeout=30,
+                check=True,
+            )
+            return True
+        except Exception as exc:
+            logger.warning("xdotool type failed: %s", exc)
             return False
 
     def _xdotool_paste(self, with_shift: bool) -> bool:
@@ -367,7 +461,7 @@ class TextInjector:
             restored = self._restore_focused_hyprland()
 
         if restored:
-            time.sleep(0.15)
+            time.sleep(0.25)
         return restored
 
     def _save_focused_sway(self) -> None:

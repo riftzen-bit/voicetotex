@@ -3,6 +3,7 @@ import logging
 import threading
 
 import numpy as np
+import scipy.signal
 import sounddevice as sd
 
 
@@ -140,6 +141,27 @@ class AudioCapture:
 
         if blocks:
             audio = np.concatenate(blocks).astype(np.float32, copy=False)
+
+            # Resample to the target rate if captured at a different rate.
+            # Whisper expects 16 kHz; many USB mics only support 44.1/48 kHz.
+            with self._lock:
+                captured_rate = self._active_sample_rate
+            target_rate = self._requested_sample_rate
+            if captured_rate != target_rate and captured_rate > 0:
+                num_target_samples = int(
+                    round(len(audio) * target_rate / captured_rate)
+                )
+                if num_target_samples > 0:
+                    LOGGER.debug(
+                        "Resampling %d samples from %.0f Hz to %.0f Hz",
+                        len(audio),
+                        captured_rate,
+                        target_rate,
+                    )
+                    audio = scipy.signal.resample(audio, num_target_samples).astype(
+                        np.float32, copy=False
+                    )
+
             return np.ascontiguousarray(audio, dtype=np.float32)
         return np.empty(0, dtype=np.float32)
 

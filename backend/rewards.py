@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import threading
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
@@ -11,7 +12,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _rewards_lock = threading.Lock()
-_rewards_path = Path.home() / ".config" / "voicetotex" / "rewards.json"
+_xdg_config = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+_rewards_path = Path(_xdg_config) / "voicetotex" / "rewards.json"
 
 _BadgeCheck = Callable[[dict[str, Any]], bool]
 _BadgeProgress = Callable[[dict[str, Any]], float]
