@@ -38,19 +38,29 @@ function resolveAppTrayIcon() {
   if (app.isPackaged) {
     candidates.push(path.join(app.getAppPath(), 'assets', 'icon.svg'));
     candidates.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'icon.svg'));
-    candidates.push(path.join(process.resourcesPath, 'build', 'icons', '32x32.png'));
     candidates.push(path.join(process.resourcesPath, 'assets', 'icon.svg'));
   } else {
-    candidates.push(path.join(app.getAppPath(), 'build', 'icons', '32x32.png'));
     candidates.push(path.join(app.getAppPath(), 'assets', 'icon.svg'));
   }
 
   for (const iconPath of candidates) {
     if (!fs.existsSync(iconPath)) continue;
-    const img = nativeImage.createFromPath(iconPath);
-    if (img && !img.isEmpty()) {
-      return img.resize({ width: 18, height: 18, quality: 'best' });
-    }
+    try {
+      if (iconPath.endsWith('.svg')) {
+        const svgData = fs.readFileSync(iconPath, 'utf8');
+        const img = nativeImage.createFromDataURL(
+          `data:image/svg+xml;base64,${Buffer.from(svgData).toString('base64')}`
+        );
+        if (img && !img.isEmpty()) {
+          return img.resize({ width: 18, height: 18, quality: 'best' });
+        }
+      } else {
+        const img = nativeImage.createFromPath(iconPath);
+        if (img && !img.isEmpty()) {
+          return img.resize({ width: 18, height: 18, quality: 'best' });
+        }
+      }
+    } catch { /* skip broken icon */ }
   }
 
   return null;

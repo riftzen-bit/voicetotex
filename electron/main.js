@@ -163,6 +163,23 @@ function commandExists(command) {
   }
 }
 
+/**
+ * Check if a Python interpreter has the core packages needed by the backend.
+ * Returns true if `faster_whisper` can be imported.
+ */
+function pythonHasRequiredPackages(pythonPath) {
+  try {
+    const result = spawnSync(pythonPath, ['-c', 'import faster_whisper'], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      timeout: 10000,
+      encoding: 'utf8',
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 function findPythonPath() {
   if (process.env.VOICETOTEX_PYTHON) {
     return process.env.VOICETOTEX_PYTHON;
@@ -187,15 +204,22 @@ function findPythonPath() {
 function ensurePackagedPythonEnv(backendDir) {
   if (!app.isPackaged) return;
 
+  // If a packaged venv exists and has the required packages, use it directly
   const packagedVenvPython = path.join(backendDir, '.venv', 'bin', 'python');
-  if (fs.existsSync(packagedVenvPython)) return;
+  if (fs.existsSync(packagedVenvPython) && pythonHasRequiredPackages(packagedVenvPython)) {
+    return;
+  }
 
   const requirementsPath = path.join(backendDir, 'requirements.txt');
   if (!fs.existsSync(requirementsPath)) return;
 
   const userVenvDir = path.join(app.getPath('userData'), 'pyenv');
   const userVenvPython = path.join(userVenvDir, 'bin', 'python');
-  if (fs.existsSync(userVenvPython)) return;
+
+  // If user venv exists AND has packages, skip
+  if (fs.existsSync(userVenvPython) && pythonHasRequiredPackages(userVenvPython)) {
+    return;
+  }
 
   const basePython = commandExists('python3') ? 'python3' : (commandExists('python') ? 'python' : null);
   if (!basePython) {
@@ -203,17 +227,22 @@ function ensurePackagedPythonEnv(backendDir) {
     return;
   }
 
-  sendBackendStatus({ status: 'starting', message: 'Preparing Python environment…' });
-  const createResult = spawnSync(basePython, ['-m', 'venv', userVenvDir], {
-    stdio: ['ignore', 'ignore', 'pipe'],
-    timeout: 180000,
-  });
-  if (createResult.status !== 0) {
-    const err = (createResult.stderr || '').toString().trim();
-    sendBackendStatus({ status: 'error', message: err || 'Failed to create Python environment.' });
-    return;
+  // Create venv if it doesn't exist yet
+  if (!fs.existsSync(userVenvPython)) {
+    sendBackendStatus({ status: 'starting', message: 'Creating Python environment…' });
+    const createResult = spawnSync(basePython, ['-m', 'venv', userVenvDir], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      timeout: 180000,
+    });
+    if (createResult.status !== 0) {
+      const err = (createResult.stderr || '').toString().trim();
+      sendBackendStatus({ status: 'error', message: err || 'Failed to create Python environment.' });
+      return;
+    }
   }
 
+  // Install or repair packages
+  sendBackendStatus({ status: 'starting', message: 'Installing Python dependencies (this may take a few minutes)…' });
   const pipResult = spawnSync(userVenvPython, ['-m', 'pip', 'install', '-r', requirementsPath], {
     stdio: ['ignore', 'ignore', 'pipe'],
     timeout: 900000,
