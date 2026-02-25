@@ -36,6 +36,12 @@ def _validate_hyprland_address(value: object) -> str:
 
 _KEY_LEFTCTRL = 29
 _KEY_LEFTSHIFT = 42
+_KEY_LEFTALT = 56
+_KEY_LEFTMETA = 125
+_KEY_RIGHTCTRL = 97
+_KEY_RIGHTSHIFT = 54
+_KEY_RIGHTALT = 100
+_KEY_RIGHTMETA = 126
 _KEY_V = 47
 _TERMINAL_KEYWORDS = (
     "konsole",
@@ -129,6 +135,11 @@ class TextInjector:
     def type_text(self, text: str, mode: str = "type") -> bool:
         if not text:
             return True
+
+        # Prevent leftover hotkey modifiers (Ctrl/Shift/etc.) from turning
+        # injected text into app shortcuts after recording stops.
+        self._release_common_modifiers()
+        time.sleep(0.03)
 
         if mode == "type" and (len(text) > 100 or "\n" in text):
             logger.debug(
@@ -462,7 +473,53 @@ class TextInjector:
 
         if restored:
             time.sleep(0.25)
+            self._release_common_modifiers()
         return restored
+
+    def _release_common_modifiers(self) -> None:
+        """Best-effort modifier release across available backends."""
+        if self._xdotool:
+            try:
+                _ = subprocess.run(
+                    [
+                        "xdotool",
+                        "keyup",
+                        "ctrl_l",
+                        "ctrl_r",
+                        "shift_l",
+                        "shift_r",
+                        "alt_l",
+                        "alt_r",
+                        "super_l",
+                        "super_r",
+                    ],
+                    timeout=2,
+                    check=False,
+                    capture_output=True,
+                )
+            except Exception as exc:
+                logger.debug("xdotool keyup modifiers failed: %s", exc)
+
+        if self._ydotool:
+            try:
+                _ = subprocess.run(
+                    [
+                        "ydotool",
+                        "key",
+                        f"{_KEY_LEFTCTRL}:0",
+                        f"{_KEY_RIGHTCTRL}:0",
+                        f"{_KEY_LEFTSHIFT}:0",
+                        f"{_KEY_RIGHTSHIFT}:0",
+                        f"{_KEY_LEFTALT}:0",
+                        f"{_KEY_RIGHTALT}:0",
+                        f"{_KEY_LEFTMETA}:0",
+                        f"{_KEY_RIGHTMETA}:0",
+                    ],
+                    timeout=3,
+                    check=False,
+                )
+            except Exception as exc:
+                logger.debug("ydotool release modifiers failed: %s", exc)
 
     def _save_focused_sway(self) -> None:
         try:

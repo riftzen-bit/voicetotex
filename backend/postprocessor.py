@@ -26,6 +26,25 @@ _SPACE_BEFORE_PUNCT = re.compile(r"\s+([.,!?;:)])")
 _NO_SPACE_AFTER_PUNCT = re.compile(r"([.,!?;:])([A-Za-zÀ-ỹ])")
 _LEADING_PUNCT = re.compile(r"^[.,;:\s]+")
 
+_TECH_PHRASE_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bclaude\s*code\b", re.IGNORECASE), "Claude Code"),
+    (re.compile(r"\bcloud\s*code\b", re.IGNORECASE), "Claude Code"),
+    (re.compile(r"\bclawde\s*code\b", re.IGNORECASE), "Claude Code"),
+    (re.compile(r"\bopen\s*a[\.\-\s]*i\b", re.IGNORECASE), "OpenAI"),
+    (re.compile(r"\bopenclaw\b", re.IGNORECASE), "OpenAI"),
+    (re.compile(r"\bchat\s*gpt\b", re.IGNORECASE), "ChatGPT"),
+    (re.compile(r"\bgithub\s*co[-\s]*pilot\b", re.IGNORECASE), "GitHub Copilot"),
+    (re.compile(r"\bvs\s*code\b", re.IGNORECASE), "VS Code"),
+    (re.compile(r"\bvscode\b", re.IGNORECASE), "VS Code"),
+    (re.compile(r"\bvisual\s+studio\s+code\b", re.IGNORECASE), "VS Code"),
+    (re.compile(r"\bnode(?:\.\s*|\s*)js\b", re.IGNORECASE), "Node.js"),
+    (re.compile(r"\bnext(?:\.\s*|\s*)js\b", re.IGNORECASE), "Next.js"),
+    (re.compile(r"\btype\s*script\b", re.IGNORECASE), "TypeScript"),
+    (re.compile(r"\bjava\s*script\b", re.IGNORECASE), "JavaScript"),
+    (re.compile(r"\bfig\s*ma\b", re.IGNORECASE), "Figma"),
+    (re.compile(r"\bui\s*/\s*ux\b", re.IGNORECASE), "UI/UX"),
+)
+
 
 def _has_diacritics(word: str) -> bool:
     return any(c in _VIET_DIACRITICS for c in word)
@@ -42,8 +61,10 @@ class VietnamesePostProcessor:
         if language in ("vi", "auto", ""):
             result = self._apply_safe_corrections(result)
 
+        result = self._normalize_tech_terms(result)
         result = self._normalize_whitespace(result)
         result = self._normalize_punctuation(result)
+        result = self._normalize_tech_terms(result)
 
         return result.strip()
 
@@ -74,6 +95,12 @@ class VietnamesePostProcessor:
 
     def _normalize_whitespace(self, text: str) -> str:
         return _MULTI_SPACE.sub(" ", text)
+
+    def _normalize_tech_terms(self, text: str) -> str:
+        result = text
+        for pattern, replacement in _TECH_PHRASE_REPLACEMENTS:
+            result = pattern.sub(replacement, result)
+        return result
 
     def _normalize_punctuation(self, text: str) -> str:
         text = _SPACE_BEFORE_PUNCT.sub(r"\1", text)

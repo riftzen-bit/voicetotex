@@ -67,12 +67,23 @@ class TranscriptionHistory:
                 with open(_history_path, "r") as f:
                     data = json.load(f)
                 if isinstance(data, list):
-                    valid = [e for e in data if _validate_entry(e)]
-                    dropped = len(data) - len(valid)
-                    if dropped:
+                    valid_all = [e for e in data if _validate_entry(e)]
+                    malformed_dropped = len(data) - len(valid_all)
+                    valid = valid_all
+                    trimmed_dropped = 0
+                    if self.max_entries > 0 and len(valid_all) > self.max_entries:
+                        trimmed_dropped = len(valid_all) - self.max_entries
+                        valid = valid_all[-self.max_entries :]
+                    if malformed_dropped:
                         logger.warning(
                             "Dropped %d malformed history entry/entries on load.",
-                            dropped,
+                            malformed_dropped,
+                        )
+                    if trimmed_dropped:
+                        logger.info(
+                            "Trimmed %d old history entry/entries to max_entries=%d.",
+                            trimmed_dropped,
+                            self.max_entries,
                         )
                     self._entries = valid
                 else:
@@ -134,6 +145,10 @@ class TranscriptionHistory:
                 },
             )
             self._entries.append(entry)
+            if self.max_entries > 0 and len(self._entries) > self.max_entries:
+                # Keep the newest entries and discard older ones to prevent
+                # unbounded growth during long-running sessions.
+                self._entries = self._entries[-self.max_entries :]
 
             self._save_internal()
             return entry_id

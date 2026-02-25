@@ -522,19 +522,36 @@ class VoiceToTexServer:
     async def _inject_text(self, text: str) -> None:
         mode = str(self.config.get("output_mode", "type"))
         loop = asyncio.get_running_loop()
+        needs_focus_restore = mode in {"type", "paste"}
 
-        _ = await loop.run_in_executor(
-            self.executor, self.text_injector.restore_focused_window
-        )
+        # Give the compositor/input stack a brief moment to settle after the
+        # hotkey release so text injection is less likely to be interpreted as
+        # shortcuts in the target app.
+        if needs_focus_restore:
+            await asyncio.sleep(0.08)
+
+        restored = False
+        if needs_focus_restore:
+            restored = await loop.run_in_executor(
+                self.executor, self.text_injector.restore_focused_window
+            )
+            if not restored:
+                LOGGER.debug("Focus restore skipped/failed before text injection")
 
         def _run_injection() -> None:
             if mode == "copy":
-                _ = self.text_injector.copy_to_clipboard(text)
+                ok = self.text_injector.copy_to_clipboard(text)
+                if not ok:
+                    LOGGER.warning("Failed to copy transcript to clipboard")
                 return
             if mode == "paste":
-                _ = self.text_injector.type_text(text, "clipboard")
+                ok = self.text_injector.type_text(text, "clipboard")
+                if not ok:
+                    LOGGER.warning("Failed to paste transcript into target app")
                 return
-            _ = self.text_injector.type_text(text, "type")
+            ok = self.text_injector.type_text(text, "type")
+            if not ok:
+                LOGGER.warning("Failed to type transcript into target app")
 
         await loop.run_in_executor(self.executor, _run_injection)
 

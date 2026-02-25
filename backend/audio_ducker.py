@@ -7,6 +7,7 @@ import subprocess
 import threading
 
 LOGGER = logging.getLogger(__name__)
+PA_VOLUME_NORM = 65536
 
 
 def _to_int(value: object) -> int | None:
@@ -105,21 +106,19 @@ class AudioDucker:
             self._exempt_pid = None
 
         if thread is not None and thread.is_alive():
-            thread.join(timeout=1.0)
+            # pactl calls can take up to 3s; wait long enough so the monitor
+            # thread doesn't re-apply ducking after we restore volumes.
+            thread.join(timeout=4.5)
+            if thread.is_alive():
+                LOGGER.warning(
+                    "Audio ducking monitor thread did not stop in time; retrying restore"
+                )
 
-        for sink_input_index, (was_muted, volume_value) in snapshot.items():
-            _ = self._run_pactl(
-                ["set-sink-input-volume", str(sink_input_index), str(volume_value)],
-                check=False,
-            )
-            _ = self._run_pactl(
-                [
-                    "set-sink-input-mute",
-                    str(sink_input_index),
-                    "1" if was_muted else "0",
-                ],
-                check=False,
-            )
+        self._restore_snapshot(snapshot)
+        if thread is not None and thread.is_alive():
+            # Final best-effort restore in case a late-running pactl call from
+            # the monitor thread modified volumes after the first restore pass.
+            self._restore_snapshot(snapshot)
 
         return True
 
@@ -134,9 +133,14 @@ class AudioDucker:
         sink_inputs = self._list_sink_inputs()
 
         with self._lock:
+            if not self._ducking:
+                return
             exempt_pid = self._exempt_pid
 
         for item in sink_inputs:
+            with self._lock:
+                if not self._ducking:
+                    return
             sink_input_index = _to_int(item.get("index"))
             if sink_input_index is None:
                 continue
@@ -251,7 +255,22 @@ class AudioDucker:
             if value is not None:
                 return value
 
-        return 65536
+        return PA_VOLUME_NORM
+
+    def _restore_snapshot(self, snapshot: dict[int, tuple[bool, int]]) -> None:
+        for sink_input_index, (was_muted, volume_value) in snapshot.items():
+            _ = self._run_pactl(
+                ["set-sink-input-volume", str(sink_input_index), str(volume_value)],
+                check=False,
+            )
+            _ = self._run_pactl(
+                [
+                    "set-sink-input-mute",
+                    str(sink_input_index),
+                    "1" if was_muted else "0",
+                ],
+                check=False,
+            )
 
     def _get_active_window_pid(self) -> int | None:
         """Get the PID of the currently focused window, trying multiple methods."""
@@ -449,12 +468,21 @@ class AudioDucker:
         text: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         try:
+            run_kwargs: dict[str, object] = {
+                "check": check,
+                "timeout": 3,
+                "text": text,
+            }
+            if capture_output:
+                run_kwargs["capture_output"] = True
+            else:
+                # Suppress pactl stderr/stdout spam (e.g. transient "No such
+                # entity" during teardown of apps/audio streams).
+                run_kwargs["stdout"] = subprocess.DEVNULL
+                run_kwargs["stderr"] = subprocess.DEVNULL
             return subprocess.run(
                 ["pactl", *args],
-                check=check,
-                timeout=3,
-                capture_output=capture_output,
-                text=text,
+                **run_kwargs,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             LOGGER.debug("pactl call failed (%s): %s", args, exc)

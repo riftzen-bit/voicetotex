@@ -11,6 +11,52 @@ from faster_whisper.vad import VadOptions
 
 logger = logging.getLogger(__name__)
 
+_AI_TERMS = [
+    "OpenAI",
+    "ChatGPT",
+    "Claude",
+    "Claude Code",
+    "Anthropic",
+    "Gemini",
+    "GitHub Copilot",
+    "Cursor",
+    "LLM",
+    "API",
+    "SDK",
+    "prompt",
+    "token",
+]
+
+_CODE_TERMS = [
+    "Python",
+    "JavaScript",
+    "TypeScript",
+    "React",
+    "Node.js",
+    "Electron",
+    "Linux",
+    "Docker",
+    "Kubernetes",
+    "terminal",
+    "CLI",
+    "Git",
+    "GitHub",
+    "WebSocket",
+]
+
+_DESIGN_TERMS = [
+    "UI",
+    "UX",
+    "Figma",
+    "wireframe",
+    "prototype",
+    "component",
+    "layout",
+    "typography",
+    "spacing",
+    "color palette",
+]
+
 
 class Transcriber:
     def __init__(self):
@@ -150,8 +196,9 @@ class Transcriber:
             if language != "auto":
                 kwargs["language"] = language
 
-            if initial_prompt:
-                kwargs["initial_prompt"] = initial_prompt
+            prompt_hint = self._build_initial_prompt(initial_prompt, language=language)
+            if prompt_hint:
+                kwargs["initial_prompt"] = prompt_hint
 
             segments, info = model.transcribe(processed, **kwargs)
         except RuntimeError as exc:
@@ -189,6 +236,33 @@ class Transcriber:
             "duration": float(duration),
             "segments": segment_items,
         }
+
+    def _build_initial_prompt(self, initial_prompt: str, language: str = "auto") -> str:
+        """
+        Build a compact vocabulary-bias prompt for technical/product names.
+        User-provided text is preserved and placed first.
+        """
+        hints = ", ".join(_AI_TERMS + _CODE_TERMS + _DESIGN_TERMS)
+
+        # Keep wording short to avoid overly long prompts while still biasing
+        # named entities and technical jargon.
+        if language == "vi":
+            template = (
+                "Tu vung uu tien ve AI, lap trinh va thiet ke: "
+                f"{hints}. Giu dung ten rieng va thuong hieu."
+            )
+        else:
+            template = (
+                "Prefer exact technical, AI, coding, and design terms: "
+                f"{hints}. Preserve product and brand names."
+            )
+
+        user_prompt = (initial_prompt or "").strip()
+        if not user_prompt:
+            return template
+        if template.lower() in user_prompt.lower():
+            return user_prompt
+        return f"{user_prompt}. {template}"
 
     def unload_model(self):
         with self._lock:
